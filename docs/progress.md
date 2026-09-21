@@ -83,9 +83,11 @@ succeeded.
 
 The local branch `codex/12-label-type-indexes` is stacked on Issue #13 base
 commit `9e003a7`. Commits `54c57fd` and `ae350b1` add private node-label and
-edge-type inverted indexes to `GraphState`; numeric ID buckets are sorted and
-unique, empty buckets are removed, lookups return copies, and existing node
-create/label-change/delete/cascade plus edge-create/delete paths maintain them.
+edge-type inverted indexes to `GraphState`; follow-up commit `7af2f6e` records
+TDD diagnostics and strengthens cascade/stale-adjacency coverage. Numeric ID
+buckets are sorted and unique, empty buckets are removed, and lookups return
+copies. Existing node create/label-change/delete/cascade and edge create/delete
+paths maintain them.
 Property mutations do not affect membership. Scan-oracle whitebox tests cover
 creation, duplicate/idempotent labels, lower-ID re-add ordering, parallel edges,
 property no-ops, failed operations, strict/cascade deletion, empty-bucket
@@ -102,10 +104,10 @@ slice passed 16/16.
 Local verification on Moon `0.1.20260915`: `moon check --target native` passed;
 `moon test --target native` passed 16/16; `moon fmt --check` passed;
 `moon info --target native` passed; generated `pkg.generated.mbti` has no diff
-from the Issue #13 base; and `git diff --check 9e003a7..HEAD` passed. The branch
-has not been pushed and no PR/hosted CI exists yet. A whole-branch independent
-review is pending before publication. `moon ide doc` remains unavailable with
-the no-backend-metadata error; current-toolchain `.mbti` plus compiler/tests are
+from the Issue #13 base; and `git diff --check 9e003a7..HEAD` passed. Independent
+review of `9e003a7..7af2f6e` found no actionable findings. The branch has not
+been pushed and no PR/hosted CI exists yet. `moon ide doc` still fails with the
+no-backend-metadata error; current-toolchain `.mbti` plus compiler/tests are
 the maintainer-authorized fallback, not a successful `moon ide doc` run.
 
 ## P0/P1 status
