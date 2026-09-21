@@ -43,7 +43,11 @@ metadata is available for any backend`). With maintainer authorization, the
 generated `.mbti` plus compiler checks/tests are used as the fallback; this does
 not mean `moon ide doc` succeeded. No graph CRUD, index, transaction, query,
 storage, recovery, snapshot, or CLI behavior has been implemented by this
-branch yet. Its commits are not merged and review is in progress.
+branch yet. Independent review approved the complete branch through `4d0aff4`.
+The Issue #1 PR and hosted CI are pending. The reviewer noted that the current
+non-ASCII position test checks the documented value representation rather than
+calculating a location from query text; a true lexer-position test is deferred
+to Issue #3, where the lexer will exist.
 
 ## P0/P1 status
 
