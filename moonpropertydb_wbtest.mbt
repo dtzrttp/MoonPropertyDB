@@ -211,6 +211,40 @@ fn assert_node_property_index_matches_scan(
 }
 
 ///|
+fn edge_property_ids_by_scan(
+  graph : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[EdgeId] raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let ids : Array[EdgeId] = []
+  for edge_id, edge in graph.edges {
+    if edge.edge_type == edge_type {
+      match edge.properties.get(property) {
+        Some(stored) => if stored == canonical { ids.push(edge_id) }
+        None => ()
+      }
+    }
+  }
+  ids.sort_by((left, right) => compare_edge_ids(left, right))
+  ids
+}
+
+///|
+fn assert_edge_property_index_matches_scan(
+  graph : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+) -> Unit raise {
+  assert_eq(
+    graph.edge_ids_by_property_index(edge_type, property, value),
+    Some(edge_property_ids_by_scan(graph, edge_type, property, value)),
+  )
+}
+
+///|
 test "node property postings match scans across node lifecycle" {
   let graph = GraphState::new()
   let first = try! graph.create_node(["User"], {
@@ -1018,5 +1052,332 @@ test "node property index definitions are scoped and duplicates are rejected" {
       PropertyValue::String("a@example.test"),
     ),
     Some([admin]),
+  )
+}
+
+///|
+test "edge property index builds from existing edges and distinguishes absent definitions" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node([], {})
+  let to = try! graph.create_node([], {})
+  let first = try! graph.create_edge(from, to, "LINKS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let second = try! graph.create_edge(from, to, "LINKS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let wrong_type = try! graph.create_edge(from, to, "MENTIONS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let missing_property = try! graph.create_edge(from, to, "LINKS", {})
+
+  try! graph.create_edge_property_index("LINKS", "weight")
+  try! graph.create_edge_property_index("EMPTY", "weight")
+  try! graph.create_edge_property_index("LINKS", "kind")
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINKS",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([first, second]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINKS",
+      "weight",
+      PropertyValue::Int64(9),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "EMPTY",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINKS",
+      "kind",
+      PropertyValue::String("dependency"),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "MENTIONS",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    None,
+  )
+  try graph.create_edge_property_index("LINKS", "weight") catch {
+    DatabaseError::IndexAlreadyExists(..) => ()
+    _ => fail("expected duplicate edge property index to be rejected")
+  } noraise {
+    _ => fail("duplicate edge property index must fail")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "LINKS",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  assert_eq(try! graph.get_edge(wrong_type).id, wrong_type)
+  assert_eq(try! graph.get_edge(missing_property).id, missing_property)
+}
+
+///|
+fn task3_one_bytes() -> Bytes {
+  Bytes::makei(3, index => {
+    match index {
+      0 => b'o'
+      1 => b'n'
+      _ => b'e'
+    }
+  })
+}
+
+///|
+test "property indexes preserve typed scalar equality" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node([], {})
+  let to = try! graph.create_node([], {})
+  let bool_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Bool(true),
+  })
+  let int_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Int64(1),
+  })
+  let float_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Float64(1.0),
+  })
+  let string_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::String("one"),
+  })
+  let bytes_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let same_bytes_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let zero_node = try! graph.create_node(["Value"], {
+    "zero": PropertyValue::Float64(-0.0),
+  })
+
+  let bool_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Bool(true),
+  })
+  let int_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Int64(1),
+  })
+  let float_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Float64(1.0),
+  })
+  let string_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::String("one"),
+  })
+  let bytes_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let same_bytes_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let zero_edge = try! graph.create_edge(from, to, "VALUE", {
+    "zero": PropertyValue::Float64(-0.0),
+  })
+
+  try! graph.create_node_property_index("Value", "v")
+  try! graph.create_node_property_index("Value", "zero")
+  try! graph.create_edge_property_index("VALUE", "v")
+  try! graph.create_edge_property_index("VALUE", "zero")
+
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_node]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index("Value", "v", PropertyValue::Int64(1)),
+    Some([int_node]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Float64(1.0),
+    ),
+    Some([float_node]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::String("one"),
+    ),
+    Some([string_node]),
+  )
+  let node_bytes_lookup = task3_one_bytes()
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bytes(node_bytes_lookup),
+    ),
+    Some([bytes_node, same_bytes_node]),
+  )
+  for zero in [PropertyValue::Float64(-0.0), PropertyValue::Float64(0.0)] {
+    assert_eq(
+      try! graph.node_ids_by_property_index("Value", "zero", zero),
+      Some([zero_node]),
+    )
+    assert_node_property_index_matches_scan(graph, "Value", "zero", zero)
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Bool(true),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Int64(1),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Float64(1.0),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::String("one"),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Bytes(node_bytes_lookup),
+  )
+  let detached_node_ids = match
+    (try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bool(true),
+    )) {
+    Some(ids) => ids
+    None => fail("expected a declared node index")
+  }
+  detached_node_ids.push(NodeId(999))
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_node]),
+  )
+
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_edge]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index("VALUE", "v", PropertyValue::Int64(1)),
+    Some([int_edge]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Float64(1.0),
+    ),
+    Some([float_edge]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::String("one"),
+    ),
+    Some([string_edge]),
+  )
+  let edge_bytes_lookup = task3_one_bytes()
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bytes(edge_bytes_lookup),
+    ),
+    Some([bytes_edge, same_bytes_edge]),
+  )
+  for zero in [PropertyValue::Float64(-0.0), PropertyValue::Float64(0.0)] {
+    assert_eq(
+      try! graph.edge_ids_by_property_index("VALUE", "zero", zero),
+      Some([zero_edge]),
+    )
+    assert_edge_property_index_matches_scan(graph, "VALUE", "zero", zero)
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Bool(true),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Float64(1.0),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::String("one"),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Bytes(edge_bytes_lookup),
+  )
+  let detached_edge_ids = match
+    (try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bool(true),
+    )) {
+    Some(ids) => ids
+    None => fail("expected a declared edge index")
+  }
+  detached_edge_ids.push(EdgeId(999))
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_edge]),
   )
 }

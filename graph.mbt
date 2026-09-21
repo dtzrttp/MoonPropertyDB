@@ -10,6 +10,10 @@ priv struct GraphState {
     Map[PropertyValue, Array[NodeId]],
   ]
   edge_ids_by_type : Map[String, Array[EdgeId]]
+  edge_property_indexes : Map[
+    EdgePropertyIndex,
+    Map[PropertyValue, Array[EdgeId]],
+  ]
   outgoing_edge_ids : Map[NodeId, Array[EdgeId]]
   incoming_edge_ids : Map[NodeId, Array[EdgeId]]
   mut next_node_id : UInt64?
@@ -23,6 +27,12 @@ priv struct NodePropertyIndex {
 } derive(Eq, Hash)
 
 ///|
+priv struct EdgePropertyIndex {
+  edge_type : String
+  property : String
+} derive(Eq, Hash)
+
+///|
 /// Create an empty graph state with the first database-assigned ID reserved.
 #warnings("-unused_value")
 fn GraphState::new() -> GraphState {
@@ -32,6 +42,7 @@ fn GraphState::new() -> GraphState {
     node_ids_by_label: Map([]),
     node_property_indexes: Map([]),
     edge_ids_by_type: Map([]),
+    edge_property_indexes: Map([]),
     outgoing_edge_ids: Map([]),
     incoming_edge_ids: Map([]),
     next_node_id: Some(1UL),
@@ -45,6 +56,14 @@ fn NodePropertyIndex::new(
   property : String,
 ) -> NodePropertyIndex {
   { label, property, }
+}
+
+///|
+fn EdgePropertyIndex::new(
+  edge_type : String,
+  property : String,
+) -> EdgePropertyIndex {
+  { edge_type, property, }
 }
 
 ///|
@@ -176,6 +195,78 @@ fn GraphState::node_ids_by_property_index(
   let canonical = normalize_property_value(property, value)
   let definition = NodePropertyIndex::new(label, property)
   match self.node_property_indexes.get(definition) {
+    Some(values) =>
+      Some(
+        match values.get(canonical) {
+          Some(ids) => ids.copy()
+          None => []
+        },
+      )
+    None => None
+  }
+}
+
+///|
+fn edge_property_index_name(edge_type : String, property : String) -> String {
+  String::add(String::add("edge:", edge_type), String::add(".", property))
+}
+
+///|
+fn add_edge_property_index_value(
+  values : Map[PropertyValue, Array[EdgeId]],
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  let ids = match values.get(value) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+  ids.push(edge_id)
+  ids.sort_by((left, right) => compare_edge_ids(left, right))
+  ids.dedup()
+  values.set(value, ids)
+}
+
+///|
+/// Build an edge-property equality index over current graph contents.
+#warnings("-unused_value")
+fn GraphState::create_edge_property_index(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+) -> Unit raise DatabaseError {
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(_) =>
+      raise DatabaseError::IndexAlreadyExists(
+        name=edge_property_index_name(edge_type, property),
+      )
+    None => ()
+  }
+  let values : Map[PropertyValue, Array[EdgeId]] = Map([])
+  for edge_id, edge in self.edges {
+    if edge.edge_type == edge_type {
+      match edge.properties.get(property) {
+        Some(value) => add_edge_property_index_value(values, value, edge_id)
+        None => ()
+      }
+    }
+  }
+  self.edge_property_indexes.set(definition, values)
+}
+
+///|
+/// Find matching IDs from a declared edge-property index, returning a detached bucket.
+#warnings("-unused_value")
+fn GraphState::edge_ids_by_property_index(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[EdgeId]? raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
     Some(values) =>
       Some(
         match values.get(canonical) {
