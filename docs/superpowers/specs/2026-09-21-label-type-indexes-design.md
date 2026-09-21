@@ -1,6 +1,6 @@
 # Node-Label and Edge-Type Indexes — Issue #12 Design Addendum
 
-**Status:** Focused design addendum for maintainer review. On 2026-09-21 the maintainer confirmed the proposed sorted-ID-array representation by saying “继续”. This written addendum remains a gate: implementation and its detailed plan wait for review of this document.
+**Status:** Approved to proceed on 2026-09-21; maintainer approval was inferred from the user's “继续” after the review request. Implemented on the local `codex/12-label-type-indexes` branch; this does not claim merge, hosted CI, or a clean independent review.
 
 ## Goal and scope
 

@@ -483,6 +483,15 @@ test "cascade validates every incident edge before mutating graph state" {
   assert_eq(try! graph.get_node(center).id, center)
   assert_eq(try! graph.get_edge(valid_edge).id, valid_edge)
   assert_eq(try! graph.get_edge(valid_outgoing).id, valid_outgoing)
+  assert_eq(graph.node_ids_with_label("Center"), [center])
+  assert_node_label_index_matches_scan(graph, "Center")
+  assert_eq(graph.edge_ids_with_type("VALID"), [valid_edge])
+  assert_edge_type_index_matches_scan(graph, "VALID")
+  assert_eq(graph.edge_ids_with_type("VALID_OUT"), [valid_outgoing])
+  assert_edge_type_index_matches_scan(graph, "VALID_OUT")
+  assert_eq(graph.edge_ids_with_type("STALE"), [])
+  assert_eq(graph.edge_ids_by_type.get("STALE"), None)
+  assert_edge_type_index_matches_scan(graph, "STALE")
   assert_eq(graph.incoming_edge_ids.get(center), Some([valid_edge]))
   assert_eq(
     graph.outgoing_edge_ids.get(center),
@@ -681,34 +690,31 @@ test "graph state keeps edge-type index consistent through mutations" {
   assert_eq(try! graph.get_edge(distinct).id, distinct)
 
   let incoming = try! graph.create_edge(left, center, "IN", {})
+  let second_incoming = try! graph.create_edge(left, center, "IN", {})
   let outgoing = try! graph.create_edge(center, right, "OUT", {})
+  let surviving_out = try! graph.create_edge(left, right, "OUT", {})
   let self_loop = try! graph.create_edge(center, center, "LOOP", {})
+  assert_eq(graph.edge_ids_with_type("IN"), [incoming, second_incoming])
+  assert_edge_type_index_matches_scan(graph, "IN")
   graph.delete_node_cascade(center) catch {
     _ => fail("cascade node deletion failed")
   }
-  for edge_type in ["IN", "OUT", "LOOP"] {
+  for edge_type in ["IN", "MENTIONS", "LOOP"] {
     assert_eq(graph.edge_ids_with_type(edge_type), [])
     assert_eq(graph.edge_ids_by_type.get(edge_type), None)
     assert_edge_type_index_matches_scan(graph, edge_type)
   }
-  try graph.get_edge(incoming) catch {
-    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, incoming)
-    _ => fail("expected cascaded incoming edge to be absent")
-  } noraise {
-    _ => fail("cascaded incoming edge lookup should fail")
+  assert_eq(graph.edge_ids_with_type("OUT"), [surviving_out])
+  assert_edge_type_index_matches_scan(graph, "OUT")
+  for edge_id in [distinct, incoming, second_incoming, outgoing, self_loop] {
+    try graph.get_edge(edge_id) catch {
+      DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge_id)
+      _ => fail("expected every cascaded incident edge to be absent")
+    } noraise {
+      _ => fail("cascaded incident edge lookup should fail")
+    }
   }
-  try graph.get_edge(outgoing) catch {
-    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, outgoing)
-    _ => fail("expected cascaded outgoing edge to be absent")
-  } noraise {
-    _ => fail("cascaded outgoing edge lookup should fail")
-  }
-  try graph.get_edge(self_loop) catch {
-    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, self_loop)
-    _ => fail("expected cascaded self-loop to be absent")
-  } noraise {
-    _ => fail("cascaded self-loop lookup should fail")
-  }
+  assert_eq(try! graph.get_edge(surviving_out).id, surviving_out)
 
   let invalid_graph = GraphState::new()
   let invalid_from = try! invalid_graph.create_node([], {})

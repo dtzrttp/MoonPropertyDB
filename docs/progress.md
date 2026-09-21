@@ -92,6 +92,13 @@ property no-ops, failed operations, strict/cascade deletion, empty-bucket
 cleanup, copied results, and invalid-property ID allocation. `GraphState` and
 the index implementations remain private; no public API changed.
 
+TDD evidence from the development session: before node-label implementation,
+the observed diagnostics reported missing `GraphState::node_ids_with_label`
+and `node_ids_by_label`; the later node slice passed 15/15. Before edge-type
+implementation, the observed diagnostics reported missing
+`GraphState::edge_ids_with_type` and `edge_ids_by_type`; the later full edge
+slice passed 16/16.
+
 Local verification on Moon `0.1.20260915`: `moon check --target native` passed;
 `moon test --target native` passed 16/16; `moon fmt --check` passed;
 `moon info --target native` passed; generated `pkg.generated.mbti` has no diff
