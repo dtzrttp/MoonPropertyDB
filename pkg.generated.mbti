@@ -10,7 +10,23 @@ import {
 // Errors
 
 // Types and methods
+pub(all) struct Edge {
+  id : EdgeId
+  from : NodeId
+  to : NodeId
+  edge_type : String
+  properties : Map[String, PropertyValue]
+} derive(Eq, @debug.Debug)
+pub fn Edge::Edge(id~ : EdgeId, from~ : NodeId, to~ : NodeId, edge_type~ : String, properties~ : Map[String, PropertyValue]) -> Self
+
 pub(all) struct EdgeId(UInt64) derive(Eq, Hash, @debug.Debug)
+
+pub(all) struct Node {
+  id : NodeId
+  labels : Array[String]
+  properties : Map[String, PropertyValue]
+} derive(Eq, @debug.Debug)
+pub fn Node::Node(id~ : NodeId, labels~ : Array[String], properties~ : Map[String, PropertyValue]) -> Self
 
 pub(all) struct NodeId(UInt64) derive(Eq, Hash, @debug.Debug)
 
@@ -23,5 +39,6 @@ pub(all) enum PropertyValue {
 } derive(Eq, Hash, @debug.Debug)
 
 // Type aliases
+pub type Properties = Map[String, PropertyValue]
 
 // Traits

@@ -15,3 +15,47 @@ pub(all) enum PropertyValue {
   String(String)
   Bytes(Bytes)
 } derive(Eq, Hash, Debug)
+
+///|
+/// A string-keyed map of supported scalar properties.
+pub type Properties = Map[String, PropertyValue]
+
+///|
+/// A detached node value. Graph/database operations own relationship invariants.
+pub(all) struct Node {
+  id : NodeId
+  labels : Array[String]
+  properties : Properties
+} derive(Eq, Debug)
+
+///|
+/// Construct a detached node value.
+pub fn Node::Node(
+  id~ : NodeId,
+  labels~ : Array[String],
+  properties~ : Properties,
+) -> Node {
+  { id, labels, properties, }
+}
+
+///|
+/// A detached directed edge value.
+pub(all) struct Edge {
+  id : EdgeId
+  from : NodeId
+  to : NodeId
+  edge_type : String
+  properties : Properties
+} derive(Eq, Debug)
+
+///|
+/// Construct a detached directed edge value.
+pub fn Edge::Edge(
+  id~ : EdgeId,
+  from~ : NodeId,
+  to~ : NodeId,
+  edge_type~ : String,
+  properties~ : Properties,
+) -> Edge {
+  { id, from, to, edge_type, properties, }
+}
