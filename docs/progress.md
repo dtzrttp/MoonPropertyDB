@@ -15,8 +15,8 @@ the approved specification.
 - Apache-2.0 license and initial contributor, security, third-party, and
   architecture documentation.
 - Least-privilege GitHub Actions workflow configured for native MoonBit checks
-  on Ubuntu; both initial [`PR #16`](https://github.com/dtzrttp/MoonPropertyDB/pull/16)
-  workflow runs passed.
+  on Ubuntu; both `native` runs for [`PR #16`](https://github.com/dtzrttp/MoonPropertyDB/pull/16)
+  passed on the then-current head `df9c089`.
 - Native scaffold check and test commands exit successfully; the test command
   currently reports **0 tests** and `no test entry found`. This is not evidence
   that graph behavior has been tested.
@@ -28,7 +28,7 @@ a v0.1 release. The feature list below is planned and not implemented.
 
 | Area | Status |
 |---|---|
-| Module and project foundation | Present on the foundation branch; both initial PR #16 Linux CI runs passed |
+| Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Graph model, node/edge CRUD, adjacency and label/type indexes | Planned; not implemented |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
