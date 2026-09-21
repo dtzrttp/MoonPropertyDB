@@ -8,6 +8,7 @@ are not listed as delivered.
 ### Added
 
 - Initialized the MoonBit module and project metadata.
+- Added the least-privilege Ubuntu GitHub Actions workflow for native MoonBit checks.
 - Added the Apache-2.0 license and baseline project, architecture, contribution,
   security, and third-party documentation.
 
