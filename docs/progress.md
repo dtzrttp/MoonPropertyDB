@@ -72,11 +72,34 @@ review approved all three slices; the final deletion-atomicity test was added
 after its coverage note and independently confirmed. [PR #18](https://github.com/dtzrttp/MoonPropertyDB/pull/18)
 is open against the Issue #1 feature branch and closes Issue #13. The hosted
 native check passed on implementation head `693f4fb` ([run](https://github.com/dtzrttp/MoonPropertyDB/actions/runs/35575788324)).
-The PR is unmerged. Secondary indexes remain unimplemented.
+The PR is unmerged. Label/type index work is isolated on the separate Issue #12
+branch; property equality indexes remain unimplemented.
 
 The same installed-toolchain `.mbti` plus compiler/test fallback applies because
 `moon ide doc` still reports no backend metadata; the command itself has not
 succeeded.
+
+## Issue #12 feature branch — not merged
+
+The local branch `codex/12-label-type-indexes` is stacked on Issue #13 base
+commit `9e003a7`. Commits `54c57fd` and `ae350b1` add private node-label and
+edge-type inverted indexes to `GraphState`; numeric ID buckets are sorted and
+unique, empty buckets are removed, lookups return copies, and existing node
+create/label-change/delete/cascade plus edge-create/delete paths maintain them.
+Property mutations do not affect membership. Scan-oracle whitebox tests cover
+creation, duplicate/idempotent labels, lower-ID re-add ordering, parallel edges,
+property no-ops, failed operations, strict/cascade deletion, empty-bucket
+cleanup, copied results, and invalid-property ID allocation. `GraphState` and
+the index implementations remain private; no public API changed.
+
+Local verification on Moon `0.1.20260915`: `moon check --target native` passed;
+`moon test --target native` passed 16/16; `moon fmt --check` passed;
+`moon info --target native` passed; generated `pkg.generated.mbti` has no diff
+from the Issue #13 base; and `git diff --check 9e003a7..HEAD` passed. The branch
+has not been pushed and no PR/hosted CI exists yet. A whole-branch independent
+review is pending before publication. `moon ide doc` remains unavailable with
+the no-backend-metadata error; current-toolchain `.mbti` plus compiler/tests are
+the maintainer-authorized fallback, not a successful `moon ide doc` run.
 
 ## P0/P1 status
 
@@ -85,7 +108,7 @@ succeeded.
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
 | In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 PR #18; local tests pass 13/13; hosted native check passed on `693f4fb` |
-| Label/type secondary indexes | Planned; not implemented |
+| Label/type secondary indexes | Implemented privately on unmerged Issue #12 branch; local tests pass 16/16; CI pending |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |
