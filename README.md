@@ -27,9 +27,10 @@ and the [architecture overview](docs/architecture.md).
 
 ## Development setup
 
-The library and CLI are not published yet. To work on the repository, install
-the MoonBit CLI, clone the repository, and run the current native checks from
-its root:
+The library and CLI are not published yet. Install the MoonBit CLI using the
+[official download instructions](https://www.moonbitlang.com/download/) for
+your operating system. Then clone the repository and run the current native
+checks from its root:
 
 ```sh
 git clone https://github.com/dtzrttp/MoonPropertyDB.git
