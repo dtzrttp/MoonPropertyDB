@@ -114,21 +114,30 @@ hosted native check passed on head `696fe2a`
 `.mbti` plus compiler/tests are
 the maintainer-authorized fallback, not a successful `moon ide doc` run.
 
-## Issue #6 feature branch — design only, not implemented
+## Issue #6 feature branch — partial, unmerged
 
-The issue-specific branch `codex/6-property-equality-indexes` is stacked on
-PR #19 head `7abc1e6`; its baseline native suite passes 16/16. The proposed
-design addendum is `docs/superpowers/specs/2026-09-21-property-equality-indexes-design.md`.
-It scopes this slice to private in-memory node indexes by `(label, property)`
-and edge indexes by `(edge type, property)`, with typed scalar equality and
-deterministic ID buckets. No index implementation, public API, query or CLI
-integration has been added on this branch.
+The issue-specific branch `codex/6-property-equality-indexes` is unmerged.
+It contains private in-memory node equality-index definitions by
+`(label, property)`, index backfill and lookups, and postings maintained on
+node creation, label addition/removal, property set/removal, strict deletion,
+and cascade deletion. The latest native suite passes **19/19**. These are
+internal graph-state capabilities; they do not add a public index API or CLI.
 
-Issue #6's transaction-rollback acceptance remains outstanding because the
-transaction system belongs to Issue #7 and is not implemented on this base.
-This branch must not claim or close Issue #6; the later Issue #7 integration
-must verify rollback leaves both index definitions and contents unchanged.
-Index-definition persistence is also deferred to the storage/snapshot work.
+Issue #6 is not complete or closable. Edge equality indexes are still
+outstanding. Issue #7 rollback atomicity must verify that transaction rollback
+leaves both index definitions and contents unchanged; transactions are not
+implemented here. Persistence and snapshot integration for index definitions
+and contents also remain outstanding, as do public APIs/CLI integration. The
+approved design addendum is
+`docs/superpowers/specs/2026-09-21-property-equality-indexes-design.md`.
+
+### Windows checkout status note
+
+Git reports CRLF/filter-only worktree status flags for `errors.mbt`,
+`model.mbt`, `moon.mod`, `moon.pkg`, `moonpropertydb.mbt`,
+`moonpropertydb_test.mbt`, and `pkg.generated.mbti`. Their index and worktree
+object IDs match, and they have no content diff; they were not staged. Do not
+change Git configuration or stage these files to clear the flags.
 
 ## P0/P1 status
 
@@ -138,7 +147,7 @@ Index-definition persistence is also deferred to the storage/snapshot work.
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
 | In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 PR #18; local tests pass 13/13; hosted native check passed on `693f4fb` |
 | Label/type secondary indexes | Implemented privately on unmerged PR #19; local tests pass 16/16; hosted native check passed on `696fe2a` |
-| Property equality indexes | Planned; not implemented |
+| Property equality indexes | Partial/private: node definition, backfill, lookups and lifecycle postings on unmerged Issue #6 branch; edge indexes, public API/CLI, Issue #7 rollback atomicity, and persistence/snapshot integration outstanding; latest native suite 19/19 |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |
 | Snapshots and checkpoint | Planned; not implemented |
