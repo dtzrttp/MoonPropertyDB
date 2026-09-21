@@ -5,6 +5,7 @@ priv struct GraphState {
   nodes : Map[NodeId, Node]
   edges : Map[EdgeId, Edge]
   node_ids_by_label : Map[String, Array[NodeId]]
+  edge_ids_by_type : Map[String, Array[EdgeId]]
   outgoing_edge_ids : Map[NodeId, Array[EdgeId]]
   incoming_edge_ids : Map[NodeId, Array[EdgeId]]
   mut next_node_id : UInt64?
@@ -19,6 +20,7 @@ fn GraphState::new() -> GraphState {
     nodes: Map([]),
     edges: Map([]),
     node_ids_by_label: Map([]),
+    edge_ids_by_type: Map([]),
     outgoing_edge_ids: Map([]),
     incoming_edge_ids: Map([]),
     next_node_id: Some(1UL),
@@ -119,6 +121,68 @@ fn GraphState::node_ids_with_label(
   label : String,
 ) -> Array[NodeId] {
   match self.node_ids_by_label.get(label) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+}
+
+///|
+/// Compare edge IDs by their wrapped unsigned numeric value.
+fn compare_edge_ids(left : EdgeId, right : EdgeId) -> Int {
+  match (left, right) {
+    (EdgeId(left_raw), EdgeId(right_raw)) => left_raw.compare(right_raw)
+  }
+}
+
+///|
+/// Add an edge to one type bucket and keep its IDs unique and ordered.
+fn GraphState::add_edge_type_index_entry(
+  self : GraphState,
+  edge_type : String,
+  edge_id : EdgeId,
+) -> Unit {
+  let ids = match self.edge_ids_by_type.get(edge_type) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+  ids.push(edge_id)
+  ids.sort_by((left, right) => compare_edge_ids(left, right))
+  ids.dedup()
+  self.edge_ids_by_type.set(edge_type, ids)
+}
+
+///|
+/// Remove an edge from one type bucket and delete empty buckets.
+fn GraphState::remove_edge_type_index_entry(
+  self : GraphState,
+  edge_type : String,
+  edge_id : EdgeId,
+) -> Unit {
+  match self.edge_ids_by_type.get(edge_type) {
+    Some(ids) => {
+      let remaining : Array[EdgeId] = []
+      for existing_id in ids.iter() {
+        if existing_id != edge_id {
+          remaining.push(existing_id)
+        }
+      }
+      if remaining.length() == 0 {
+        self.edge_ids_by_type.remove(edge_type)
+      } else {
+        self.edge_ids_by_type.set(edge_type, remaining)
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+#warnings("-unused_value")
+fn GraphState::edge_ids_with_type(
+  self : GraphState,
+  edge_type : String,
+) -> Array[EdgeId] {
+  match self.edge_ids_by_type.get(edge_type) {
     Some(ids) => ids.copy()
     None => []
   }
@@ -313,6 +377,7 @@ fn GraphState::create_edge(
   }
   incoming.push(edge_id)
   self.incoming_edge_ids.set(to, incoming)
+  self.add_edge_type_index_entry(edge_type, edge_id)
   edge_id
 }
 
@@ -408,6 +473,7 @@ fn GraphState::delete_edge(
   id : EdgeId,
 ) -> Unit raise DatabaseError {
   let edge = self.require_edge(id)
+  self.remove_edge_type_index_entry(edge.edge_type, id)
   remove_edge_from_index(self.outgoing_edge_ids, edge.from, id)
   remove_edge_from_index(self.incoming_edge_ids, edge.to, id)
   self.edges.remove(id)

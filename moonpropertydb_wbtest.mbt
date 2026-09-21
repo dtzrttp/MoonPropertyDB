@@ -167,6 +167,36 @@ fn assert_node_label_index_matches_scan(
 }
 
 ///|
+fn edge_type_ids_by_scan(
+  graph : GraphState,
+  edge_type : String,
+) -> Array[EdgeId] {
+  let ids : Array[EdgeId] = []
+  for edge_id, edge in graph.edges {
+    if edge.edge_type == edge_type {
+      ids.push(edge_id)
+    }
+  }
+  ids.sort_by((left, right) => {
+    match (left, right) {
+      (EdgeId(left_raw), EdgeId(right_raw)) => left_raw.compare(right_raw)
+    }
+  })
+  ids
+}
+
+///|
+fn assert_edge_type_index_matches_scan(
+  graph : GraphState,
+  edge_type : String,
+) -> Unit raise {
+  assert_eq(
+    graph.edge_ids_with_type(edge_type),
+    edge_type_ids_by_scan(graph, edge_type),
+  )
+}
+
+///|
 fn edge_ids(edges : Array[Edge]) -> Array[EdgeId] {
   let ids : Array[EdgeId] = []
   for edge in edges.iter() {
@@ -592,4 +622,114 @@ test "node-label index is cleaned by strict and cascade deletion" {
       _ => fail("cascaded edge lookup should fail")
     }
   }
+}
+
+///|
+test "graph state keeps edge-type index consistent through mutations" {
+  let graph = GraphState::new()
+  let left = try! graph.create_node([], {})
+  let center = try! graph.create_node([], {})
+  let right = try! graph.create_node([], {})
+  let first = try! graph.create_edge(left, center, "LINKS", {})
+  let parallel = try! graph.create_edge(left, center, "LINKS", {})
+  let distinct = try! graph.create_edge(center, right, "MENTIONS", {})
+  assert_eq(graph.edge_ids_with_type("LINKS"), [first, parallel])
+  assert_edge_type_index_matches_scan(graph, "LINKS")
+  assert_edge_type_index_matches_scan(graph, "MENTIONS")
+  assert_eq(graph.edge_ids_with_type("MISSING"), [])
+
+  graph.set_edge_property(first, "weight", PropertyValue::Int64(2)) catch {
+    _ => fail("setting an edge property failed")
+  }
+  graph.remove_edge_property(first, "weight") catch {
+    _ => fail("removing an edge property failed")
+  }
+  assert_edge_type_index_matches_scan(graph, "LINKS")
+  assert_edge_type_index_matches_scan(graph, "MENTIONS")
+
+  let detached = graph.edge_ids_with_type("LINKS")
+  detached.push(EdgeId(99))
+  assert_eq(graph.edge_ids_with_type("LINKS"), [first, parallel])
+
+  try graph.create_edge(NodeId(99), right, "REJECTED", {}) catch {
+    DatabaseError::EndpointNodeNotFound(missing) =>
+      assert_eq(missing, NodeId(99))
+    _ => fail("expected a missing-endpoint error")
+  } noraise {
+    _ => fail("edge creation with a missing endpoint should fail")
+  }
+  try graph.delete_edge(EdgeId(99)) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("expected a structured missing-edge error")
+  } noraise {
+    _ => fail("deleting a missing edge should fail")
+  }
+  assert_eq(graph.edge_ids_with_type("REJECTED"), [])
+  assert_edge_type_index_matches_scan(graph, "LINKS")
+
+  graph.delete_edge(first) catch {
+    _ => fail("deleting the first parallel edge failed")
+  }
+  assert_eq(graph.edge_ids_with_type("LINKS"), [parallel])
+  assert_edge_type_index_matches_scan(graph, "LINKS")
+  graph.delete_edge(parallel) catch {
+    _ => fail("deleting the last edge of a type failed")
+  }
+  assert_eq(graph.edge_ids_with_type("LINKS"), [])
+  assert_eq(graph.edge_ids_by_type.get("LINKS"), None)
+  assert_edge_type_index_matches_scan(graph, "LINKS")
+  assert_eq(try! graph.get_edge(distinct).id, distinct)
+
+  let incoming = try! graph.create_edge(left, center, "IN", {})
+  let outgoing = try! graph.create_edge(center, right, "OUT", {})
+  let self_loop = try! graph.create_edge(center, center, "LOOP", {})
+  graph.delete_node_cascade(center) catch {
+    _ => fail("cascade node deletion failed")
+  }
+  for edge_type in ["IN", "OUT", "LOOP"] {
+    assert_eq(graph.edge_ids_with_type(edge_type), [])
+    assert_eq(graph.edge_ids_by_type.get(edge_type), None)
+    assert_edge_type_index_matches_scan(graph, edge_type)
+  }
+  try graph.get_edge(incoming) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, incoming)
+    _ => fail("expected cascaded incoming edge to be absent")
+  } noraise {
+    _ => fail("cascaded incoming edge lookup should fail")
+  }
+  try graph.get_edge(outgoing) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, outgoing)
+    _ => fail("expected cascaded outgoing edge to be absent")
+  } noraise {
+    _ => fail("cascaded outgoing edge lookup should fail")
+  }
+  try graph.get_edge(self_loop) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, self_loop)
+    _ => fail("expected cascaded self-loop to be absent")
+  } noraise {
+    _ => fail("cascaded self-loop lookup should fail")
+  }
+
+  let invalid_graph = GraphState::new()
+  let invalid_from = try! invalid_graph.create_node([], {})
+  let invalid_to = try! invalid_graph.create_node([], {})
+  try
+    invalid_graph.create_edge(invalid_from, invalid_to, "REJECTED", {
+      "score": PropertyValue::Float64(@double.infinity),
+    })
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("expected invalid edge properties to be rejected")
+  } noraise {
+    _ => fail("invalid edge creation should fail")
+  }
+  assert_eq(invalid_graph.edge_ids_with_type("REJECTED"), [])
+  let accepted = try! invalid_graph.create_edge(
+    invalid_from,
+    invalid_to,
+    "ACCEPTED",
+    {},
+  )
+  assert_eq(accepted, EdgeId(1))
+  assert_edge_type_index_matches_scan(invalid_graph, "ACCEPTED")
 }
