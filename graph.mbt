@@ -5,12 +5,22 @@ priv struct GraphState {
   nodes : Map[NodeId, Node]
   edges : Map[EdgeId, Edge]
   node_ids_by_label : Map[String, Array[NodeId]]
+  node_property_indexes : Map[
+    NodePropertyIndex,
+    Map[PropertyValue, Array[NodeId]],
+  ]
   edge_ids_by_type : Map[String, Array[EdgeId]]
   outgoing_edge_ids : Map[NodeId, Array[EdgeId]]
   incoming_edge_ids : Map[NodeId, Array[EdgeId]]
   mut next_node_id : UInt64?
   mut next_edge_id : UInt64?
 }
+
+///|
+priv struct NodePropertyIndex {
+  label : String
+  property : String
+} derive(Eq, Hash)
 
 ///|
 /// Create an empty graph state with the first database-assigned ID reserved.
@@ -20,11 +30,94 @@ fn GraphState::new() -> GraphState {
     nodes: Map([]),
     edges: Map([]),
     node_ids_by_label: Map([]),
+    node_property_indexes: Map([]),
     edge_ids_by_type: Map([]),
     outgoing_edge_ids: Map([]),
     incoming_edge_ids: Map([]),
     next_node_id: Some(1UL),
     next_edge_id: Some(1UL),
+  }
+}
+
+///|
+fn NodePropertyIndex::new(
+  label : String,
+  property : String,
+) -> NodePropertyIndex {
+  { label, property, }
+}
+
+///|
+fn node_property_index_name(label : String, property : String) -> String {
+  String::add(String::add("node:", label), String::add(".", property))
+}
+
+///|
+fn add_node_property_index_value(
+  values : Map[PropertyValue, Array[NodeId]],
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  let ids = match values.get(value) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+  ids.push(node_id)
+  ids.sort_by((left, right) => compare_node_ids(left, right))
+  ids.dedup()
+  values.set(value, ids)
+}
+
+///|
+fn GraphState::create_node_property_index(
+  self : GraphState,
+  label : String,
+  property : String,
+) -> Unit raise DatabaseError {
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(_) =>
+      raise DatabaseError::IndexAlreadyExists(
+        name=node_property_index_name(label, property),
+      )
+    None => ()
+  }
+  let values : Map[PropertyValue, Array[NodeId]] = Map([])
+  for node_id, node in self.nodes {
+    let mut has_label = false
+    for node_label in node.labels.iter() {
+      if node_label == label {
+        has_label = true
+      }
+    }
+    if has_label {
+      match node.properties.get(property) {
+        Some(value) => add_node_property_index_value(values, value, node_id)
+        None => ()
+      }
+    }
+  }
+  self.node_property_indexes.set(definition, values)
+}
+
+///|
+fn GraphState::node_ids_by_property_index(
+  self : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[NodeId]? raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(values) =>
+      Some(
+        match values.get(canonical) {
+          Some(ids) => ids.copy()
+          None => []
+        },
+      )
+    None => None
   }
 }
 

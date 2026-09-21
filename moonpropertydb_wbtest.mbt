@@ -167,6 +167,50 @@ fn assert_node_label_index_matches_scan(
 }
 
 ///|
+fn node_property_ids_by_scan(
+  graph : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[NodeId] raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let ids : Array[NodeId] = []
+  for node_id, node in graph.nodes {
+    let mut has_label = false
+    for node_label in node.labels.iter() {
+      if node_label == label {
+        has_label = true
+      }
+    }
+    if has_label {
+      match node.properties.get(property) {
+        Some(stored) => if stored == canonical { ids.push(node_id) }
+        None => ()
+      }
+    }
+  }
+  ids.sort_by((left, right) => {
+    match (left, right) {
+      (NodeId(left_raw), NodeId(right_raw)) => left_raw.compare(right_raw)
+    }
+  })
+  ids
+}
+
+///|
+fn assert_node_property_index_matches_scan(
+  graph : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+) -> Unit raise {
+  assert_eq(
+    graph.node_ids_by_property_index(label, property, value),
+    Some(node_property_ids_by_scan(graph, label, property, value)),
+  )
+}
+
+///|
 fn edge_type_ids_by_scan(
   graph : GraphState,
   edge_type : String,
@@ -738,4 +782,100 @@ test "graph state keeps edge-type index consistent through mutations" {
   )
   assert_eq(accepted, EdgeId(1))
   assert_edge_type_index_matches_scan(invalid_graph, "ACCEPTED")
+}
+
+///|
+test "node property index builds from existing nodes and distinguishes absent definitions" {
+  let graph = GraphState::new()
+  let first = try! graph.create_node(["User"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+  let second = try! graph.create_node(["User"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+  let no_email = try! graph.create_node(["User"], {})
+  let other_label = try! graph.create_node(["Admin"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+
+  try! graph.create_node_property_index("User", "email")
+  try! graph.create_node_property_index("Ghost", "email")
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "User",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    Some([first, second]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "User",
+      "email",
+      PropertyValue::String("missing@example.test"),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Admin",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    None,
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Ghost",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    Some([]),
+  )
+  assert_eq(try! graph.get_node(no_email).id, no_email)
+  assert_eq(try! graph.get_node(other_label).id, other_label)
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "email",
+    PropertyValue::String("a@example.test"),
+  )
+}
+
+///|
+test "node property index definitions are scoped and duplicates are rejected" {
+  let graph = GraphState::new()
+  let user = try! graph.create_node(["User"], {
+    "email": PropertyValue::String("u@example.test"),
+    "name": PropertyValue::String("User"),
+  })
+  let admin = try! graph.create_node(["Admin"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+  try! graph.create_node_property_index("User", "email")
+  try! graph.create_node_property_index("User", "name")
+  try! graph.create_node_property_index("Admin", "email")
+
+  try graph.create_node_property_index("User", "email") catch {
+    DatabaseError::IndexAlreadyExists(..) => ()
+    _ => fail("expected duplicate node property index to be rejected")
+  } noraise {
+    _ => fail("duplicate node property index must fail")
+  }
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "User",
+      "email",
+      PropertyValue::String("u@example.test"),
+    ),
+    Some([user]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Admin",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    Some([admin]),
+  )
 }
