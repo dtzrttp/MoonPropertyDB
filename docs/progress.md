@@ -105,9 +105,13 @@ Local verification on Moon `0.1.20260915`: `moon check --target native` passed;
 `moon test --target native` passed 16/16; `moon fmt --check` passed;
 `moon info --target native` passed; generated `pkg.generated.mbti` has no diff
 from the Issue #13 base; and `git diff --check 9e003a7..HEAD` passed. Independent
-review of `9e003a7..7af2f6e` found no actionable findings. The branch has not
-been pushed and no PR/hosted CI exists yet. `moon ide doc` still fails with the
-no-backend-metadata error; current-toolchain `.mbti` plus compiler/tests are
+reviews of `9e003a7..7af2f6e` and the exact final range `9e003a7..696fe2a`
+found no actionable findings. [PR #19](https://github.com/dtzrttp/MoonPropertyDB/pull/19)
+is open against `codex/13-in-memory-graph-store` and closes Issue #12. Its
+hosted native check passed on head `696fe2a`
+([run 35585875220](https://github.com/dtzrttp/MoonPropertyDB/actions/runs/35585875220)).
+`moon ide doc` still fails with the no-backend-metadata error; current-toolchain
+`.mbti` plus compiler/tests are
 the maintainer-authorized fallback, not a successful `moon ide doc` run.
 
 ## P0/P1 status
@@ -117,7 +121,7 @@ the maintainer-authorized fallback, not a successful `moon ide doc` run.
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
 | In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 PR #18; local tests pass 13/13; hosted native check passed on `693f4fb` |
-| Label/type secondary indexes | Implemented privately on unmerged Issue #12 branch; local tests pass 16/16; CI pending |
+| Label/type secondary indexes | Implemented privately on unmerged PR #19; local tests pass 16/16; hosted native check passed on `696fe2a` |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |
