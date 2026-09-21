@@ -114,6 +114,22 @@ hosted native check passed on head `696fe2a`
 `.mbti` plus compiler/tests are
 the maintainer-authorized fallback, not a successful `moon ide doc` run.
 
+## Issue #6 feature branch — design only, not implemented
+
+The issue-specific branch `codex/6-property-equality-indexes` is stacked on
+PR #19 head `7abc1e6`; its baseline native suite passes 16/16. The proposed
+design addendum is `docs/superpowers/specs/2026-09-21-property-equality-indexes-design.md`.
+It scopes this slice to private in-memory node indexes by `(label, property)`
+and edge indexes by `(edge type, property)`, with typed scalar equality and
+deterministic ID buckets. No index implementation, public API, query or CLI
+integration has been added on this branch.
+
+Issue #6's transaction-rollback acceptance remains outstanding because the
+transaction system belongs to Issue #7 and is not implemented on this base.
+This branch must not claim or close Issue #6; the later Issue #7 integration
+must verify rollback leaves both index definitions and contents unchanged.
+Index-definition persistence is also deferred to the storage/snapshot work.
+
 ## P0/P1 status
 
 | Area | Status |
