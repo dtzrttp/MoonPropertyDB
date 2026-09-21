@@ -59,15 +59,18 @@ slice committed locally as `5304d3a`: monotonic node ID allocation with
 explicit exhaustion, node create/get, unique and deterministic labels,
 idempotent label changes, explicit node-property set/remove, finite-Float64
 validation, negative-zero normalization, and input/output collection isolation.
-The current edge/adjacency slice adds directed create/get/delete, endpoint
-validation, in/out adjacency, edge-property set/remove, detached results, and
-max edge-ID exhaustion. The aggregate native suite passes 10/10; native check,
-format check, info generation and diff check pass locally. Generated
-`pkg.generated.mbti` adds `DatabaseError::NodeIdExhausted` and
-`DatabaseError::EdgeIdExhausted`; `GraphState` remains private. Independent
-review approved the edge slice with non-blocking coverage/documentation
-suggestions, all addressed before committing locally. It has not been pushed or
-covered by hosted CI. Node deletion and secondary indexes remain unimplemented.
+The edge/adjacency slice adds directed create/get/delete, endpoint validation,
+in/out adjacency, edge-property set/remove, detached results, and max edge-ID
+exhaustion. The strict/cascade deletion slice rejects deleting connected nodes
+unless cascade is explicit; cascades deduplicate self-loops, remove adjacency
+entries, and prevalidate all incident edges before mutation. Tests also exercise
+failure atomicity with a stale adjacency reference. The aggregate native suite
+passes 13/13; native check, format check, info generation and diff check pass
+locally. Generated `pkg.generated.mbti` adds `DatabaseError::NodeIdExhausted`
+and `DatabaseError::EdgeIdExhausted`; `GraphState` remains private. Independent
+review approved all three slices; the final deletion-atomicity test was added
+after its coverage note and independently confirmed. The branch is not pushed
+and has no hosted CI evidence yet. Secondary indexes remain unimplemented.
 
 The same installed-toolchain `.mbti` plus compiler/test fallback applies because
 `moon ide doc` still reports no backend metadata; the command itself has not
@@ -79,7 +82,7 @@ succeeded.
 |---|---|
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
-| In-memory graph store | Private node/edge CRUD and adjacency on unmerged Issue #13 branch; node deletion remains unimplemented |
+| In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 branch; local tests pass 13/13; hosted CI pending |
 | Label/type secondary indexes | Planned; not implemented |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |

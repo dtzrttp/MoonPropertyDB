@@ -18,12 +18,14 @@ are not listed as delivered.
   native tests.
 - On the stacked, unmerged Issue #13 branch, added private in-memory node and
   edge state with create/get/delete, endpoint validation, incoming/outgoing
-  adjacency, property updates, detached collection copies, and scalar
-  validation. It adds `NodeIdExhausted` and `EdgeIdExhausted` (26 categories on
-  this branch) and passes 10/10 native tests locally; hosted CI is pending.
+  adjacency, property updates, detached collection copies, scalar validation,
+  and explicit strict/cascade node deletion with self-loop deduplication and
+  failure-atomic prevalidation. It adds `NodeIdExhausted` and
+  `EdgeIdExhausted` (26 categories on this branch) and passes 13/13 native
+  tests locally; hosted CI is pending.
 
 ### Not included
 
 - The Issue #13 branch currently implements private in-memory node/edge state;
-  public Database APIs, node deletion, secondary indexes, transactions,
-  persistence, recovery, snapshots, queries, and CLI remain unimplemented.
+  public Database APIs, secondary indexes, transactions, persistence, recovery,
+  snapshots, queries, and CLI remain unimplemented.

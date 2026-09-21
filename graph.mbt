@@ -391,3 +391,83 @@ fn GraphState::remove_edge_property(
     ),
   )
 }
+
+///|
+/// Collect a node's incoming and outgoing edges without counting self-loops twice.
+fn GraphState::incident_edge_ids(
+  self : GraphState,
+  node_id : NodeId,
+) -> Array[EdgeId] raise DatabaseError {
+  match self.nodes.get(node_id) {
+    Some(_) => ()
+    None => raise DatabaseError::NodeNotFound(node_id)
+  }
+  let seen : Map[EdgeId, Unit] = Map([])
+  let incident : Array[EdgeId] = []
+  match self.incoming_edge_ids.get(node_id) {
+    Some(edge_ids) =>
+      for edge_id in edge_ids.iter() {
+        match seen.get(edge_id) {
+          Some(_) => ()
+          None => {
+            seen.set(edge_id, ())
+            incident.push(edge_id)
+          }
+        }
+      }
+    None => ()
+  }
+  match self.outgoing_edge_ids.get(node_id) {
+    Some(edge_ids) =>
+      for edge_id in edge_ids.iter() {
+        match seen.get(edge_id) {
+          Some(_) => ()
+          None => {
+            seen.set(edge_id, ())
+            incident.push(edge_id)
+          }
+        }
+      }
+    None => ()
+  }
+  incident
+}
+
+///|
+/// Delete an unconnected node, rejecting the operation while any edge is incident.
+#warnings("-unused_value")
+fn GraphState::delete_node(
+  self : GraphState,
+  id : NodeId,
+) -> Unit raise DatabaseError {
+  let incident = self.incident_edge_ids(id)
+  if incident.length() > 0 {
+    raise DatabaseError::NodeHasIncidentEdges(id)
+  }
+  self.nodes.remove(id)
+  self.outgoing_edge_ids.remove(id)
+  self.incoming_edge_ids.remove(id)
+}
+
+///|
+/// Delete a node and explicitly cascade to each unique incoming/outgoing edge.
+/// All referenced edges are checked before mutation so expected failures are atomic.
+#warnings("-unused_value")
+fn GraphState::delete_node_cascade(
+  self : GraphState,
+  id : NodeId,
+) -> Unit raise DatabaseError {
+  let incident = self.incident_edge_ids(id)
+  for edge_id in incident.iter() {
+    match self.edges.get(edge_id) {
+      Some(_) => ()
+      None => raise DatabaseError::EdgeNotFound(edge_id)
+    }
+  }
+  for edge_id in incident.iter() {
+    self.delete_edge(edge_id)
+  }
+  self.nodes.remove(id)
+  self.outgoing_edge_ids.remove(id)
+  self.incoming_edge_ids.remove(id)
+}

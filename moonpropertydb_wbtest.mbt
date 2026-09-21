@@ -302,3 +302,132 @@ test "graph state exhausts edge ids without wrapping" {
     _ => fail("edge ID allocation must not wrap after maximum UInt64")
   }
 }
+
+///|
+test "strict node deletion rejects incident edges without changing graph state" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node(["From"], {})
+  let center = try! graph.create_node(["Center"], {})
+  let to = try! graph.create_node(["To"], {})
+  let isolated = try! graph.create_node(["Isolated"], {})
+  let incoming = try! graph.create_edge(from, center, "IN", {})
+  let outgoing = try! graph.create_edge(center, to, "OUT", {})
+  let self_loop = try! graph.create_edge(center, center, "SELF", {})
+  let before = try! graph.get_node(center)
+
+  try graph.delete_node(center) catch {
+    DatabaseError::NodeHasIncidentEdges(missing) => assert_eq(missing, center)
+    _ => fail("expected strict deletion to reject incident edges")
+  } noraise {
+    _ => fail("strict deletion must fail while incident edges exist")
+  }
+
+  assert_eq(try! graph.get_node(center), before)
+  assert_eq(try! graph.get_edge(incoming).id, incoming)
+  assert_eq(try! graph.get_edge(outgoing).id, outgoing)
+  assert_eq(try! graph.get_edge(self_loop).id, self_loop)
+  assert_eq(edge_ids(try! graph.incoming_edges(center)), [incoming, self_loop])
+  assert_eq(edge_ids(try! graph.outgoing_edges(center)), [outgoing, self_loop])
+  assert_eq(try! graph.get_node(from).id, from)
+  assert_eq(try! graph.get_node(to).id, to)
+
+  graph.delete_node(isolated) catch {
+    _ => fail("deleting an isolated node failed")
+  }
+  try graph.get_node(isolated) catch {
+    DatabaseError::NodeNotFound(missing) => assert_eq(missing, isolated)
+    _ => fail("expected deleted isolated node to be missing")
+  } noraise {
+    _ => fail("expected deleted isolated node lookup to fail")
+  }
+  try graph.delete_node(NodeId(99)) catch {
+    DatabaseError::NodeNotFound(missing) => assert_eq(missing, NodeId(99))
+    _ => fail("expected missing-node deletion to report NodeNotFound")
+  } noraise {
+    _ => fail("expected deletion of a missing node to fail")
+  }
+}
+
+///|
+test "cascade node deletion removes incident edges once and preserves unrelated data" {
+  let graph = GraphState::new()
+  let left = try! graph.create_node(["Left"], {})
+  let center = try! graph.create_node(["Center"], {})
+  let right = try! graph.create_node(["Right"], {})
+  let unrelated_from = try! graph.create_node(["Other"], {})
+  let unrelated_to = try! graph.create_node(["Other"], {})
+  let incoming = try! graph.create_edge(left, center, "IN", {})
+  let parallel = try! graph.create_edge(left, center, "IN", {})
+  let outgoing = try! graph.create_edge(center, right, "OUT", {})
+  let self_loop = try! graph.create_edge(center, center, "SELF", {})
+  let unrelated = try! graph.create_edge(unrelated_from, unrelated_to, "KEEP", {})
+
+  graph.delete_node_cascade(center) catch {
+    _ => fail("cascade node deletion failed")
+  }
+
+  try graph.get_node(center) catch {
+    DatabaseError::NodeNotFound(missing) => assert_eq(missing, center)
+    _ => fail("expected cascaded node to be missing")
+  } noraise {
+    _ => fail("expected cascaded node lookup to fail")
+  }
+  for edge_id in [incoming, parallel, outgoing, self_loop].iter() {
+    try graph.get_edge(edge_id) catch {
+      DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge_id)
+      _ => fail("expected each incident edge to be removed")
+    } noraise {
+      _ => fail("expected incident edge lookup to fail")
+    }
+  }
+  assert_eq(graph.outgoing_edge_ids.get(center), None)
+  assert_eq(graph.incoming_edge_ids.get(center), None)
+  assert_eq(edge_ids(try! graph.outgoing_edges(left)), [])
+  assert_eq(edge_ids(try! graph.incoming_edges(right)), [])
+  assert_eq(try! graph.get_edge(unrelated).id, unrelated)
+  assert_eq(edge_ids(try! graph.outgoing_edges(unrelated_from)), [unrelated])
+  assert_eq(edge_ids(try! graph.incoming_edges(unrelated_to)), [unrelated])
+
+  let next_node = try! graph.create_node([], {})
+  let next_edge = try! graph.create_edge(left, right, "AFTER", {})
+  assert_eq(next_node, NodeId(6))
+  assert_eq(next_edge, EdgeId(6))
+  assert_eq(edge_ids(try! graph.outgoing_edges(left)), [next_edge])
+  assert_eq(edge_ids(try! graph.incoming_edges(right)), [next_edge])
+}
+
+///|
+test "cascade validates every incident edge before mutating graph state" {
+  let graph = GraphState::new()
+  let left = try! graph.create_node(["Left"], {})
+  let center = try! graph.create_node(["Center"], {})
+  let right = try! graph.create_node(["Right"], {})
+  let valid_edge = try! graph.create_edge(left, center, "VALID", {})
+  let valid_outgoing = try! graph.create_edge(center, right, "VALID_OUT", {})
+  let stale_edge = EdgeId(99)
+  match graph.outgoing_edge_ids.get(center) {
+    Some(edge_ids) => edge_ids.push(stale_edge)
+    None => fail("expected the center node to have an outgoing adjacency entry")
+  }
+
+  try graph.delete_node_cascade(center) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, stale_edge)
+    _ => fail("expected cascade to report the stale edge reference")
+  } noraise {
+    _ => fail("expected cascade to reject the stale edge reference")
+  }
+
+  assert_eq(try! graph.get_node(center).id, center)
+  assert_eq(try! graph.get_edge(valid_edge).id, valid_edge)
+  assert_eq(try! graph.get_edge(valid_outgoing).id, valid_outgoing)
+  assert_eq(graph.incoming_edge_ids.get(center), Some([valid_edge]))
+  assert_eq(
+    graph.outgoing_edge_ids.get(center),
+    Some([valid_outgoing, stale_edge]),
+  )
+  assert_eq(edge_ids(try! graph.outgoing_edges(left)), [valid_edge])
+  assert_eq(try! graph.create_node([], {}), NodeId(4))
+  let next_edge = try! graph.create_edge(left, right, "AFTER", {})
+  assert_eq(next_edge, EdgeId(3))
+  assert_eq(edge_ids(try! graph.outgoing_edges(left)), [valid_edge, next_edge])
+}
