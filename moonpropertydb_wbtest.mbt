@@ -211,6 +211,147 @@ fn assert_node_property_index_matches_scan(
 }
 
 ///|
+test "node property postings match scans across node lifecycle" {
+  let graph = GraphState::new()
+  let first = try! graph.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  try! graph.create_node_property_index("User", "age")
+  try! graph.create_node_property_index("Admin", "age")
+  let second = try! graph.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  let without_age = try! graph.create_node(["User"], {})
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+
+  graph.add_label(second, "Admin") catch {
+    _ => fail("adding indexed label failed")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "Admin",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  graph.set_node_property(second, "age", PropertyValue::Int64(2)) catch {
+    _ => fail("replacing indexed node property failed")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Admin",
+    "age",
+    PropertyValue::Int64(2),
+  )
+  graph.remove_node_property(second, "age") catch {
+    _ => fail("removing indexed node property failed")
+  }
+  graph.remove_node_property(second, "age") catch {
+    _ => fail("repeating removal of an absent property should be idempotent")
+  }
+  graph.set_node_property(second, "age", PropertyValue::Int64(1)) catch {
+    _ => fail("reinserting indexed node property failed")
+  }
+  try
+    graph.set_node_property(
+      second,
+      "age",
+      PropertyValue::Float64(@double.infinity),
+    )
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("non-finite indexed property update should be rejected")
+  } noraise {
+    _ => fail("non-finite indexed property update should be rejected")
+  }
+  assert_eq(
+    (try! graph.get_node(second)).properties.get("age"),
+    Some(PropertyValue::Int64(1)),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  graph.remove_label(second, "Admin") catch {
+    _ => fail("removing indexed label failed")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "Admin",
+    "age",
+    PropertyValue::Int64(1),
+  )
+
+  let neighbor = try! graph.create_node([], {})
+  let connected = try! graph.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  let edge = try! graph.create_edge(neighbor, connected, "LINK", {})
+  try graph.delete_node(connected) catch {
+    DatabaseError::NodeHasIncidentEdges(missing) =>
+      assert_eq(missing, connected)
+    _ => fail("strict delete should reject an indexed connected node")
+  } noraise {
+    _ => fail("strict delete should reject an indexed connected node")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  graph.delete_node_cascade(connected) catch {
+    _ => fail("cascade delete failed")
+  }
+  try graph.get_edge(edge) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge)
+    _ => fail("cascade should delete incident edge")
+  } noraise {
+    _ => fail("cascade should delete incident edge")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  assert_eq(try! graph.get_node(first).id, first)
+  assert_eq(try! graph.get_node(without_age).id, without_age)
+  try
+    graph.create_node(["User"], {
+      "age": PropertyValue::Float64(@double.infinity),
+    })
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("invalid node creation should be rejected")
+  } noraise {
+    _ => fail("invalid node creation should be rejected")
+  }
+  assert_eq(try! graph.create_node([], {}), NodeId(6))
+  match graph.node_property_indexes.get(NodePropertyIndex::new("User", "age")) {
+    Some(_) => ()
+    None => fail("deleting indexed nodes must retain the definition")
+  }
+  match
+    graph.node_property_indexes.get(NodePropertyIndex::new("Admin", "age")) {
+    Some(values) => assert_eq(values.get(PropertyValue::Int64(1)), None)
+    None => fail("removing the final matching label must retain the definition")
+  }
+}
+
+///|
 fn edge_type_ids_by_scan(
   graph : GraphState,
   edge_type : String,

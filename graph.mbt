@@ -69,6 +69,68 @@ fn add_node_property_index_value(
 }
 
 ///|
+fn remove_node_property_index_value(
+  values : Map[PropertyValue, Array[NodeId]],
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  match values.get(value) {
+    Some(ids) => {
+      let remaining : Array[NodeId] = []
+      for existing_id in ids.iter() {
+        if existing_id != node_id {
+          remaining.push(existing_id)
+        }
+      }
+      if remaining.length() == 0 {
+        values.remove(value)
+      } else {
+        values.set(value, remaining)
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::add_node_property_posting(
+  self : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      add_node_property_index_value(values, value, node_id)
+      self.node_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::remove_node_property_posting(
+  self : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      remove_node_property_index_value(values, value, node_id)
+      self.node_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
 /// Reserved for the later production graph/database index-definition path.
 #warnings("-unused_value")
 fn GraphState::create_node_property_index(
@@ -325,6 +387,9 @@ fn GraphState::create_node(
   )
   for label in owned_labels.iter() {
     self.add_node_label_index_entry(label, node_id)
+    for key, value in owned_properties {
+      self.add_node_property_posting(label, key, value, node_id)
+    }
   }
   node_id
 }
@@ -354,6 +419,7 @@ fn GraphState::add_label(
 ) -> Unit raise DatabaseError {
   let node = self.require_node(id)
   let labels = node.labels.copy()
+  let has_label = labels.contains(label)
   labels.push(label)
   labels.sort()
   labels.dedup()
@@ -362,6 +428,11 @@ fn GraphState::add_label(
     Node::Node(id~, labels~, properties=node.properties.copy()),
   )
   self.add_node_label_index_entry(label, id)
+  if !has_label {
+    for key, value in node.properties {
+      self.add_node_property_posting(label, key, value, id)
+    }
+  }
 }
 
 ///|
@@ -373,6 +444,7 @@ fn GraphState::remove_label(
   label : String,
 ) -> Unit raise DatabaseError {
   let node = self.require_node(id)
+  let had_label = node.labels.contains(label)
   let labels : Array[String] = []
   for existing in node.labels.iter() {
     if existing != label {
@@ -384,6 +456,11 @@ fn GraphState::remove_label(
     Node::Node(id~, labels~, properties=node.properties.copy()),
   )
   self.remove_node_label_index_entry(label, id)
+  if had_label {
+    for key, value in node.properties {
+      self.remove_node_property_posting(label, key, value, id)
+    }
+  }
 }
 
 ///|
@@ -399,6 +476,14 @@ fn GraphState::set_node_property(
   let normalized = normalize_property_value(key, value)
   let properties = node.properties.copy()
   properties.set(key, normalized)
+  for label in node.labels.iter() {
+    match node.properties.get(key) {
+      Some(old_value) =>
+        self.remove_node_property_posting(label, key, old_value, id)
+      None => ()
+    }
+    self.add_node_property_posting(label, key, normalized, id)
+  }
   self.nodes.set(id, Node::Node(id~, labels=node.labels.copy(), properties~))
 }
 
@@ -412,6 +497,13 @@ fn GraphState::remove_node_property(
 ) -> Unit raise DatabaseError {
   let node = self.require_node(id)
   let properties = node.properties.copy()
+  match node.properties.get(key) {
+    Some(old_value) =>
+      for label in node.labels.iter() {
+        self.remove_node_property_posting(label, key, old_value, id)
+      }
+    None => ()
+  }
   properties.remove(key)
   self.nodes.set(id, Node::Node(id~, labels=node.labels.copy(), properties~))
 }
@@ -679,6 +771,9 @@ fn GraphState::delete_node(
   }
   for label in node.labels.iter() {
     self.remove_node_label_index_entry(label, id)
+    for key, value in node.properties {
+      self.remove_node_property_posting(label, key, value, id)
+    }
   }
   self.nodes.remove(id)
   self.outgoing_edge_ids.remove(id)
@@ -706,6 +801,9 @@ fn GraphState::delete_node_cascade(
   }
   for label in node.labels.iter() {
     self.remove_node_label_index_entry(label, id)
+    for key, value in node.properties {
+      self.remove_node_property_posting(label, key, value, id)
+    }
   }
   self.nodes.remove(id)
   self.outgoing_edge_ids.remove(id)
