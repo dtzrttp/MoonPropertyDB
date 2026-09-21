@@ -22,7 +22,8 @@ are not listed as delivered.
   and explicit strict/cascade node deletion with self-loop deduplication and
   failure-atomic prevalidation. It adds `NodeIdExhausted` and
   `EdgeIdExhausted` (26 categories on this branch) and passes 13/13 native
-  tests locally; hosted CI is pending.
+  tests locally; the hosted native check passed on the initial PR head
+  `693f4fb`.
 
 ### Not included
 

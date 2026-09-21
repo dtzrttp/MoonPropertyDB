@@ -69,8 +69,10 @@ passes 13/13; native check, format check, info generation and diff check pass
 locally. Generated `pkg.generated.mbti` adds `DatabaseError::NodeIdExhausted`
 and `DatabaseError::EdgeIdExhausted`; `GraphState` remains private. Independent
 review approved all three slices; the final deletion-atomicity test was added
-after its coverage note and independently confirmed. The branch is not pushed
-and has no hosted CI evidence yet. Secondary indexes remain unimplemented.
+after its coverage note and independently confirmed. [PR #18](https://github.com/dtzrttp/MoonPropertyDB/pull/18)
+is open against the Issue #1 feature branch and closes Issue #13. The hosted
+native check passed on implementation head `693f4fb` ([run](https://github.com/dtzrttp/MoonPropertyDB/actions/runs/35575788324)).
+The PR is unmerged. Secondary indexes remain unimplemented.
 
 The same installed-toolchain `.mbti` plus compiler/test fallback applies because
 `moon ide doc` still reports no backend metadata; the command itself has not
@@ -82,7 +84,7 @@ succeeded.
 |---|---|
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
-| In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 branch; local tests pass 13/13; hosted CI pending |
+| In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 PR #18; local tests pass 13/13; hosted native check passed on `693f4fb` |
 | Label/type secondary indexes | Planned; not implemented |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
