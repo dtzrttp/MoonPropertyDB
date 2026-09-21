@@ -4,6 +4,7 @@
 priv struct GraphState {
   nodes : Map[NodeId, Node]
   edges : Map[EdgeId, Edge]
+  node_ids_by_label : Map[String, Array[NodeId]]
   outgoing_edge_ids : Map[NodeId, Array[EdgeId]]
   incoming_edge_ids : Map[NodeId, Array[EdgeId]]
   mut next_node_id : UInt64?
@@ -17,6 +18,7 @@ fn GraphState::new() -> GraphState {
   {
     nodes: Map([]),
     edges: Map([]),
+    node_ids_by_label: Map([]),
     outgoing_edge_ids: Map([]),
     incoming_edge_ids: Map([]),
     next_node_id: Some(1UL),
@@ -61,6 +63,68 @@ fn copy_validated_properties(
 }
 
 ///|
+/// Compare node IDs by their wrapped unsigned numeric value.
+fn compare_node_ids(left : NodeId, right : NodeId) -> Int {
+  match (left, right) {
+    (NodeId(left_raw), NodeId(right_raw)) => left_raw.compare(right_raw)
+  }
+}
+
+///|
+/// Add a node to one label bucket and keep its IDs unique and ordered.
+fn GraphState::add_node_label_index_entry(
+  self : GraphState,
+  label : String,
+  node_id : NodeId,
+) -> Unit {
+  let ids = match self.node_ids_by_label.get(label) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+  ids.push(node_id)
+  ids.sort_by((left, right) => compare_node_ids(left, right))
+  ids.dedup()
+  self.node_ids_by_label.set(label, ids)
+}
+
+///|
+/// Remove a node from one label bucket and delete empty buckets.
+fn GraphState::remove_node_label_index_entry(
+  self : GraphState,
+  label : String,
+  node_id : NodeId,
+) -> Unit {
+  match self.node_ids_by_label.get(label) {
+    Some(ids) => {
+      let remaining : Array[NodeId] = []
+      for existing_id in ids.iter() {
+        if existing_id != node_id {
+          remaining.push(existing_id)
+        }
+      }
+      if remaining.length() == 0 {
+        self.node_ids_by_label.remove(label)
+      } else {
+        self.node_ids_by_label.set(label, remaining)
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+#warnings("-unused_value")
+fn GraphState::node_ids_with_label(
+  self : GraphState,
+  label : String,
+) -> Array[NodeId] {
+  match self.node_ids_by_label.get(label) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+}
+
+///|
 /// Return the stored node or raise the structured missing-node error.
 fn GraphState::require_node(
   self : GraphState,
@@ -98,6 +162,9 @@ fn GraphState::create_node(
     node_id,
     Node::Node(id=node_id, labels=owned_labels, properties=owned_properties),
   )
+  for label in owned_labels.iter() {
+    self.add_node_label_index_entry(label, node_id)
+  }
   node_id
 }
 
@@ -133,6 +200,7 @@ fn GraphState::add_label(
     id,
     Node::Node(id~, labels~, properties=node.properties.copy()),
   )
+  self.add_node_label_index_entry(label, id)
 }
 
 ///|
@@ -154,6 +222,7 @@ fn GraphState::remove_label(
     id,
     Node::Node(id~, labels~, properties=node.properties.copy()),
   )
+  self.remove_node_label_index_entry(label, id)
 }
 
 ///|
@@ -440,9 +509,13 @@ fn GraphState::delete_node(
   self : GraphState,
   id : NodeId,
 ) -> Unit raise DatabaseError {
+  let node = self.require_node(id)
   let incident = self.incident_edge_ids(id)
   if incident.length() > 0 {
     raise DatabaseError::NodeHasIncidentEdges(id)
+  }
+  for label in node.labels.iter() {
+    self.remove_node_label_index_entry(label, id)
   }
   self.nodes.remove(id)
   self.outgoing_edge_ids.remove(id)
@@ -457,6 +530,7 @@ fn GraphState::delete_node_cascade(
   self : GraphState,
   id : NodeId,
 ) -> Unit raise DatabaseError {
+  let node = self.require_node(id)
   let incident = self.incident_edge_ids(id)
   for edge_id in incident.iter() {
     match self.edges.get(edge_id) {
@@ -466,6 +540,9 @@ fn GraphState::delete_node_cascade(
   }
   for edge_id in incident.iter() {
     self.delete_edge(edge_id)
+  }
+  for label in node.labels.iter() {
+    self.remove_node_label_index_entry(label, id)
   }
   self.nodes.remove(id)
   self.outgoing_edge_ids.remove(id)

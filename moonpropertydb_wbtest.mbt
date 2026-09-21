@@ -134,6 +134,39 @@ test "graph state updates node labels and properties idempotently" {
 }
 
 ///|
+fn node_label_ids_by_scan(graph : GraphState, label : String) -> Array[NodeId] {
+  let ids : Array[NodeId] = []
+  for node_id, node in graph.nodes {
+    let mut matched = false
+    for node_label in node.labels.iter() {
+      if node_label == label {
+        matched = true
+      }
+    }
+    if matched {
+      ids.push(node_id)
+    }
+  }
+  ids.sort_by((left, right) => {
+    match (left, right) {
+      (NodeId(left_raw), NodeId(right_raw)) => left_raw.compare(right_raw)
+    }
+  })
+  ids
+}
+
+///|
+fn assert_node_label_index_matches_scan(
+  graph : GraphState,
+  label : String,
+) -> Unit raise {
+  assert_eq(
+    graph.node_ids_with_label(label),
+    node_label_ids_by_scan(graph, label),
+  )
+}
+
+///|
 fn edge_ids(edges : Array[Edge]) -> Array[EdgeId] {
   let ids : Array[EdgeId] = []
   for edge in edges.iter() {
@@ -430,4 +463,133 @@ test "cascade validates every incident edge before mutating graph state" {
   let next_edge = try! graph.create_edge(left, right, "AFTER", {})
   assert_eq(next_edge, EdgeId(3))
   assert_eq(edge_ids(try! graph.outgoing_edges(left)), [valid_edge, next_edge])
+}
+
+///|
+test "graph state keeps node-label index consistent and ordered" {
+  let graph = GraphState::new()
+  let first = try! graph.create_node(["User", "User"], {})
+  let second = try! graph.create_node(["User", "Admin"], {})
+  assert_eq(graph.node_ids_with_label("User"), [first, second])
+  assert_node_label_index_matches_scan(graph, "User")
+  assert_node_label_index_matches_scan(graph, "Admin")
+  assert_eq(graph.node_ids_with_label("Missing"), [])
+
+  graph.add_label(first, "User") catch {
+    _ => fail("adding a duplicate label failed")
+  }
+  graph.add_label(first, "Editor") catch {
+    _ => fail("adding a new label failed")
+  }
+  assert_node_label_index_matches_scan(graph, "User")
+  assert_node_label_index_matches_scan(graph, "Editor")
+
+  graph.remove_label(first, "Absent") catch {
+    _ => fail("removing an absent label failed")
+  }
+  graph.remove_label(first, "User") catch {
+    _ => fail("removing an existing label failed")
+  }
+  assert_eq(graph.node_ids_with_label("User"), [second])
+  assert_node_label_index_matches_scan(graph, "User")
+
+  graph.add_label(first, "User") catch {
+    _ => fail("re-adding a removed label failed")
+  }
+  assert_eq(graph.node_ids_with_label("User"), [first, second])
+  assert_node_label_index_matches_scan(graph, "User")
+
+  graph.set_node_property(first, "age", PropertyValue::Int64(28)) catch {
+    _ => fail("setting a node property failed")
+  }
+  graph.remove_node_property(first, "age") catch {
+    _ => fail("removing a node property failed")
+  }
+  assert_node_label_index_matches_scan(graph, "User")
+
+  let detached = graph.node_ids_with_label("User")
+  detached.push(NodeId(99))
+  assert_eq(graph.node_ids_with_label("User"), [first, second])
+
+  graph.remove_label(first, "User") catch {
+    _ => fail("removing the first indexed label failed")
+  }
+  graph.remove_label(second, "User") catch {
+    _ => fail("removing the final indexed label failed")
+  }
+  assert_eq(graph.node_ids_with_label("User"), [])
+  assert_eq(graph.node_ids_by_label.get("User"), None)
+  assert_node_label_index_matches_scan(graph, "User")
+
+  try graph.add_label(NodeId(99), "User") catch {
+    DatabaseError::NodeNotFound(missing) => assert_eq(missing, NodeId(99))
+    _ => fail("expected a structured missing-node error")
+  } noraise {
+    _ => fail("adding a label to a missing node should fail")
+  }
+  try graph.remove_label(NodeId(99), "User") catch {
+    DatabaseError::NodeNotFound(missing) => assert_eq(missing, NodeId(99))
+    _ => fail("expected a structured missing-node error")
+  } noraise {
+    _ => fail("removing a label from a missing node should fail")
+  }
+  assert_node_label_index_matches_scan(graph, "User")
+  assert_node_label_index_matches_scan(graph, "Editor")
+
+  let invalid_graph = GraphState::new()
+  try
+    invalid_graph.create_node(["Rejected"], {
+      "score": PropertyValue::Float64(@double.infinity),
+    })
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("expected invalid node properties to be rejected")
+  } noraise {
+    _ => fail("invalid node creation should fail")
+  }
+  assert_eq(invalid_graph.node_ids_with_label("Rejected"), [])
+  assert_eq(try! invalid_graph.create_node(["Accepted"], {}), NodeId(1))
+  assert_node_label_index_matches_scan(invalid_graph, "Accepted")
+}
+
+///|
+test "node-label index is cleaned by strict and cascade deletion" {
+  let graph = GraphState::new()
+  let isolated = try! graph.create_node(["Isolated"], {})
+  graph.delete_node(isolated) catch {
+    _ => fail("deleting an isolated node failed")
+  }
+  assert_eq(graph.node_ids_with_label("Isolated"), [])
+  assert_node_label_index_matches_scan(graph, "Isolated")
+
+  let left = try! graph.create_node(["Neighbor"], {})
+  let center = try! graph.create_node(["Center"], {})
+  let right = try! graph.create_node(["Neighbor"], {})
+  let incoming = try! graph.create_edge(left, center, "IN", {})
+  let outgoing = try! graph.create_edge(center, right, "OUT", {})
+  let self_loop = try! graph.create_edge(center, center, "LOOP", {})
+  try graph.delete_node(center) catch {
+    DatabaseError::NodeHasIncidentEdges(missing) => assert_eq(missing, center)
+    _ => fail("expected strict deletion of a connected node to fail")
+  } noraise {
+    _ => fail("strict deletion of a connected node should fail")
+  }
+  assert_node_label_index_matches_scan(graph, "Center")
+  assert_eq(graph.node_ids_with_label("Center"), [center])
+
+  graph.delete_node_cascade(center) catch {
+    _ => fail("cascade deletion failed")
+  }
+  assert_node_label_index_matches_scan(graph, "Center")
+  assert_eq(graph.node_ids_with_label("Center"), [])
+  assert_eq(graph.node_ids_by_label.get("Center"), None)
+  assert_node_label_index_matches_scan(graph, "Neighbor")
+  for edge_id in [incoming, outgoing, self_loop].iter() {
+    try graph.get_edge(edge_id) catch {
+      DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge_id)
+      _ => fail("expected each cascaded edge to be absent")
+    } noraise {
+      _ => fail("cascaded edge lookup should fail")
+    }
+  }
 }
