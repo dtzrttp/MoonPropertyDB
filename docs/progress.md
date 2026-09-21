@@ -45,11 +45,30 @@ not mean `moon ide doc` succeeded. No graph CRUD, index, transaction, query,
 storage, recovery, snapshot, or CLI behavior has been implemented by this
 branch yet. Independent review approved the complete branch through `4d0aff4`.
 [PR #17](https://github.com/dtzrttp/MoonPropertyDB/pull/17) is open against
-`codex/4-project-foundation`; its hosted native check passed on head `63ddfe2`.
+`codex/4-project-foundation`; its latest hosted native check passed on head
+`7d5646c`.
 It has not been merged. The reviewer noted that the current
 non-ASCII position test checks the documented value representation rather than
 calculating a location from query text; a true lexer-position test is deferred
 to Issue #3, where the lexer will exist.
+
+## Issue #13 feature branch — not merged
+
+The stacked branch `codex/13-in-memory-graph-store` currently contains the
+first private graph-state slice: monotonic node ID allocation with explicit
+exhaustion, node create/get, unique and deterministic labels, idempotent label
+changes, explicit node-property set/remove, finite-Float64 validation, negative
+zero normalization, and input/output collection isolation. Its native tests
+pass 5/5; `moon check --target native`, `moon fmt --check`, `moon info
+--target native`, and `git diff --check` pass locally. The generated interface
+adds `DatabaseError::NodeIdExhausted`; `GraphState` remains private. This slice
+was independently reviewed and committed locally; it has not been pushed or
+covered by hosted CI. Edge CRUD, adjacency, node deletion, and indexes remain
+unimplemented.
+
+The same installed-toolchain `.mbti` plus compiler/test fallback applies because
+`moon ide doc` still reports no backend metadata; the command itself has not
+succeeded.
 
 ## P0/P1 status
 
@@ -57,7 +76,8 @@ to Issue #3, where the lexer will exist.
 |---|---|
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
-| Node/edge CRUD, adjacency and label/type indexes | Planned; not implemented |
+| In-memory graph store | Partial private node state on unmerged Issue #13 branch; edge CRUD, adjacency, and deletion remain unimplemented |
+| Adjacency and label/type indexes | Planned; not implemented |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |

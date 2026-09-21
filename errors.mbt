@@ -26,6 +26,7 @@ pub(all) suberror DatabaseError {
   IncompatibleDatabaseFormat(version~ : UInt16)
   WriterLockOccupied(path~ : String)
   NodeNotFound(NodeId)
+  NodeIdExhausted
   EdgeNotFound(EdgeId)
   EndpointNodeNotFound(NodeId)
   NodeHasIncidentEdges(NodeId)

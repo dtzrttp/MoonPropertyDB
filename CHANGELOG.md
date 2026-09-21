@@ -14,10 +14,16 @@ are not listed as delivered.
 - On the unmerged Issue #1 feature branch, added typed node/edge IDs, scalar
   property values, detached node/edge records, source locations, and structured
   database error categories for uninitialized databases, corrupt WAL records,
-  and corrupt snapshots. Native tests pass 3/3 on that branch; graph CRUD,
-  indexes, transactions, and persistence remain unimplemented.
+  and corrupt snapshots. That branch has 24 error categories and passes 3/3
+  native tests.
+- On the stacked, unmerged Issue #13 branch, added a private in-memory node
+  state with create/get, id allocation, label and property updates, detached
+  collection copies, and scalar validation. It adds the `NodeIdExhausted`
+  error (25 categories on this branch) and passes 5/5 native tests locally.
 
 ### Not included
 
-- No graph CRUD, index, transaction, persistence, recovery, snapshot, query, or
-  CLI functionality is implemented in this scaffold.
+- The Issue #13 branch currently implements only private node-state behavior;
+  public Database APIs, edge CRUD, node deletion, adjacency and secondary
+  indexes, transactions, persistence, recovery, snapshots, queries, and CLI
+  remain unimplemented.
