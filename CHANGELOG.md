@@ -31,18 +31,20 @@ are not listed as delivered.
   public index APIs, property equality indexes, transactions, persistence,
   query, and CLI integration remain unimplemented.
 - On the unmerged `codex/6-property-equality-indexes` branch, added private
-  in-memory node equality-index definitions, backfill and lookups, plus posting
-  maintenance on node create, label add/remove, property set/remove, strict
-  delete, and cascade delete. The latest native suite passes 19/19. This is a
-  partial Issue #6 implementation, not a closable issue: edge equality indexes,
-  public APIs/CLI, Issue #7 rollback atomicity, and persistence/snapshot
-  integration remain outstanding.
+  in-memory node and edge equality-index definitions, backfill and lookups.
+  Node postings are maintained on node create, label add/remove, property
+  set/remove, strict delete, and cascade delete. Edge postings are built at
+  index creation but edge mutation maintenance is still pending. The latest
+  native suite passes 21/21. This is a partial Issue #6 implementation, not a
+  closable issue: edge lifecycle maintenance, public APIs/CLI, Issue #7 rollback
+  atomicity, and persistence/snapshot integration remain outstanding.
 
 ### Not included
 
 - The Issue #13 base branch implements private in-memory node/edge state. The
   Issue #12 candidate adds private label/type indexes on top. The Issue #6
-  branch adds only private in-memory node equality indexes and posting
-  maintenance; edge equality indexes, public Database APIs/CLI, Issue #7
-  rollback atomicity, persistence, recovery, snapshots, and queries remain
-  unimplemented or outstanding.
+  branch adds private node/edge equality-index definitions and lookups, with
+  node lifecycle posting maintenance; edge lifecycle posting maintenance is
+  not yet implemented. Public Database APIs/CLI, Issue #7 rollback atomicity,
+  persistence, recovery, snapshots, and queries remain unimplemented or
+  outstanding.
