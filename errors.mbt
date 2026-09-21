@@ -1,5 +1,6 @@
 ///|
-/// A source location. Offset is a zero-based UTF-8 byte count; line and column are one-based.
+/// A source location. Offset is a zero-based UTF-8 byte count, line is one-based,
+/// and column is a one-based Unicode scalar-value count (not grapheme clusters).
 pub(all) struct SourcePosition {
   offset : UInt64
   line : Int
@@ -20,6 +21,7 @@ pub fn SourcePosition::SourcePosition(
 /// A typed, inspectable failure from a MoonPropertyDB public operation.
 pub(all) suberror DatabaseError {
   DatabaseDirectoryNotFound(path~ : String)
+  DatabaseNotInitialized(path~ : String)
   DatabaseClosed
   IncompatibleDatabaseFormat(version~ : UInt16)
   WriterLockOccupied(path~ : String)
@@ -39,7 +41,23 @@ pub(all) suberror DatabaseError {
     transaction_id~ : UInt64?
   )
   LogChecksumFailed(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?)
-  SnapshotChecksumFailed(file~ : String)
+  CorruptLogRecord(
+    file~ : String,
+    offset~ : UInt64,
+    transaction_id~ : UInt64?,
+    reason~ : String
+  )
+  SnapshotChecksumFailed(
+    file~ : String,
+    offset~ : UInt64,
+    transaction_id~ : UInt64?
+  )
+  CorruptSnapshot(
+    file~ : String,
+    offset~ : UInt64,
+    transaction_id~ : UInt64?,
+    reason~ : String
+  )
   IoError(file~ : String, operation~ : String, reason~ : String)
   TransactionAlreadyCommitted
   TransactionAlreadyRolledBack

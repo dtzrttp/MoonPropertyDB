@@ -133,6 +133,15 @@ test "database errors preserve category and query location" {
   let next_position = @moonpropertydb.SourcePosition(offset=5, line=1, column=6)
   assert_eq(position, same_position)
   assert_not_eq(position, next_position)
+  // One CJK Unicode scalar occupies three UTF-8 bytes but one source column.
+  let after_cjk = @moonpropertydb.SourcePosition(offset=3, line=1, column=2)
+  assert_eq(after_cjk.offset, 3)
+  assert_eq(after_cjk.column, 2)
+
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::DatabaseDirectoryNotFound(path="./data"),
+    @moonpropertydb.DatabaseError::DatabaseNotInitialized(path="./data"),
+  )
 
   assert_not_eq(
     @moonpropertydb.DatabaseError::NodeNotFound(@moonpropertydb.NodeId(1)),
@@ -144,14 +153,45 @@ test "database errors preserve category and query location" {
       offset=0,
       transaction_id=None,
     ),
+    @moonpropertydb.DatabaseError::CorruptLogRecord(
+      file="graph.wal",
+      offset=12,
+      transaction_id=None,
+      reason="invalid magic",
+    ),
+  )
+  assert_not_eq(
     @moonpropertydb.DatabaseError::LogChecksumFailed(
       file="graph.wal",
       offset=0,
       transaction_id=None,
     ),
+    @moonpropertydb.DatabaseError::CorruptLogRecord(
+      file="graph.wal",
+      offset=12,
+      transaction_id=None,
+      reason="invalid operation",
+    ),
   )
   assert_not_eq(
-    @moonpropertydb.DatabaseError::SnapshotChecksumFailed(file="snapshot-1.bin"),
+    @moonpropertydb.DatabaseError::SnapshotChecksumFailed(
+      file="snapshot-1.bin",
+      offset=256,
+      transaction_id=None,
+    ),
+    @moonpropertydb.DatabaseError::CorruptSnapshot(
+      file="snapshot-1.bin",
+      offset=48,
+      transaction_id=None,
+      reason="invalid node record",
+    ),
+  )
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::SnapshotChecksumFailed(
+      file="snapshot-1.bin",
+      offset=256,
+      transaction_id=None,
+    ),
     @moonpropertydb.DatabaseError::IoError(
       file="snapshot-1.bin",
       operation="read",

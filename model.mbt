@@ -7,7 +7,9 @@ pub(all) struct NodeId(UInt64) derive(Eq, Hash, Debug)
 pub(all) struct EdgeId(UInt64) derive(Eq, Hash, Debug)
 
 ///|
-/// A supported scalar stored in node and edge properties.
+/// A supported scalar stored in node and edge properties. Database write boundaries
+/// must reject non-finite `Float64` values and normalize negative zero; this enum
+/// itself can represent values that are invalid for storage.
 pub(all) enum PropertyValue {
   Bool(Bool)
   Int64(Int64)
