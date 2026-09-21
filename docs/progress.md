@@ -24,12 +24,29 @@ the approved specification.
 The foundation work is being prepared for review; it has not yet been merged as
 a v0.1 release. The feature list below is planned and not implemented.
 
+## Issue #1 feature branch — not merged
+
+The dependent branch `codex/1-graph-model-errors` currently contains typed
+`NodeId`/`EdgeId`, the supported scalar `PropertyValue` variants, a string-keyed
+`Properties` map, detached `Node`/directed `Edge` records, `SourcePosition`, and
+21 distinct structured `DatabaseError` cases. Public signatures were checked
+in the current-toolchain-generated `pkg.generated.mbti`; `moon test --target
+native` passes 3/3 and `moon check --target native` passes on the branch.
+
+`moon ide doc` is unavailable in the installed toolchain (`Fail to load core: no
+metadata is available for any backend`). With maintainer authorization, the
+generated `.mbti` plus compiler checks/tests are used as the fallback; this does
+not mean `moon ide doc` succeeded. No graph CRUD, index, transaction, query,
+storage, recovery, snapshot, or CLI behavior has been implemented by this
+branch yet. Its commits are not merged and review is in progress.
+
 ## P0/P1 status
 
 | Area | Status |
 |---|---|
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
-| Graph model, node/edge CRUD, adjacency and label/type indexes | Planned; not implemented |
+| Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
+| Node/edge CRUD, adjacency and label/type indexes | Planned; not implemented |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |

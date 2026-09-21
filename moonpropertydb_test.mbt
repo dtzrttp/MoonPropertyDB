@@ -54,6 +54,30 @@ test "node and edge values retain ids, labels, direction, and properties" {
     },
   )
   assert_eq(node, same_node)
+  assert_not_eq(
+    node,
+    @moonpropertydb.Node(
+      id=@moonpropertydb.NodeId(4),
+      labels=["User", "Developer"],
+      properties~,
+    ),
+  )
+  assert_not_eq(
+    node,
+    @moonpropertydb.Node(
+      id=@moonpropertydb.NodeId(1),
+      labels=["User"],
+      properties~,
+    ),
+  )
+  assert_not_eq(
+    node,
+    @moonpropertydb.Node(
+      id=@moonpropertydb.NodeId(1),
+      labels=["User", "Developer"],
+      properties={ "name": @moonpropertydb.PropertyValue::String("Bob") },
+    ),
+  )
 
   let edge = @moonpropertydb.Edge(
     id=@moonpropertydb.EdgeId(2),
@@ -70,4 +94,82 @@ test "node and edge values retain ids, labels, direction, and properties" {
     properties={},
   )
   assert_not_eq(edge, reversed)
+  assert_not_eq(
+    edge,
+    @moonpropertydb.Edge(
+      id=@moonpropertydb.EdgeId(5),
+      from=@moonpropertydb.NodeId(1),
+      to=@moonpropertydb.NodeId(3),
+      edge_type="FOLLOWS",
+      properties={},
+    ),
+  )
+  assert_not_eq(
+    edge,
+    @moonpropertydb.Edge(
+      id=@moonpropertydb.EdgeId(2),
+      from=@moonpropertydb.NodeId(1),
+      to=@moonpropertydb.NodeId(3),
+      edge_type="LIKES",
+      properties={},
+    ),
+  )
+  assert_not_eq(
+    edge,
+    @moonpropertydb.Edge(
+      id=@moonpropertydb.EdgeId(2),
+      from=@moonpropertydb.NodeId(1),
+      to=@moonpropertydb.NodeId(3),
+      edge_type="FOLLOWS",
+      properties={ "since": @moonpropertydb.PropertyValue::Int64(2025) },
+    ),
+  )
+}
+
+///|
+test "database errors preserve category and query location" {
+  let position = @moonpropertydb.SourcePosition(offset=4, line=1, column=5)
+  let same_position = @moonpropertydb.SourcePosition(offset=4, line=1, column=5)
+  let next_position = @moonpropertydb.SourcePosition(offset=5, line=1, column=6)
+  assert_eq(position, same_position)
+  assert_not_eq(position, next_position)
+
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::NodeNotFound(@moonpropertydb.NodeId(1)),
+    @moonpropertydb.DatabaseError::EdgeNotFound(@moonpropertydb.EdgeId(1)),
+  )
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::IncompleteLogRecord(
+      file="graph.wal",
+      offset=0,
+      transaction_id=None,
+    ),
+    @moonpropertydb.DatabaseError::LogChecksumFailed(
+      file="graph.wal",
+      offset=0,
+      transaction_id=None,
+    ),
+  )
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::SnapshotChecksumFailed(file="snapshot-1.bin"),
+    @moonpropertydb.DatabaseError::IoError(
+      file="snapshot-1.bin",
+      operation="read",
+      reason="denied",
+    ),
+  )
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::DatabaseClosed,
+    @moonpropertydb.DatabaseError::TransactionAlreadyCommitted,
+  )
+  assert_not_eq(
+    @moonpropertydb.DatabaseError::QueryLexicalError(
+      position~,
+      reason="unexpected character",
+    ),
+    @moonpropertydb.DatabaseError::QuerySyntaxError(
+      position~,
+      reason="expected node pattern",
+    ),
+  )
 }

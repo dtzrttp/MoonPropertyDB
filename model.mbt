@@ -22,6 +22,7 @@ pub type Properties = Map[String, PropertyValue]
 
 ///|
 /// A detached node value. Graph/database operations own relationship invariants.
+/// The constructor retains the supplied labels and properties collections by reference.
 pub(all) struct Node {
   id : NodeId
   labels : Array[String]
@@ -39,7 +40,7 @@ pub fn Node::Node(
 }
 
 ///|
-/// A detached directed edge value.
+/// A detached directed edge value. The constructor retains the supplied properties by reference.
 pub(all) struct Edge {
   id : EdgeId
   from : NodeId
