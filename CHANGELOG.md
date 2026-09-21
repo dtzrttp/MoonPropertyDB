@@ -16,14 +16,14 @@ are not listed as delivered.
   database error categories for uninitialized databases, corrupt WAL records,
   and corrupt snapshots. That branch has 24 error categories and passes 3/3
   native tests.
-- On the stacked, unmerged Issue #13 branch, added a private in-memory node
-  state with create/get, id allocation, label and property updates, detached
-  collection copies, and scalar validation. It adds the `NodeIdExhausted`
-  error (25 categories on this branch) and passes 5/5 native tests locally.
+- On the stacked, unmerged Issue #13 branch, added private in-memory node and
+  edge state with create/get/delete, endpoint validation, incoming/outgoing
+  adjacency, property updates, detached collection copies, and scalar
+  validation. It adds `NodeIdExhausted` and `EdgeIdExhausted` (26 categories on
+  this branch) and passes 10/10 native tests locally; hosted CI is pending.
 
 ### Not included
 
-- The Issue #13 branch currently implements only private node-state behavior;
-  public Database APIs, edge CRUD, node deletion, adjacency and secondary
-  indexes, transactions, persistence, recovery, snapshots, queries, and CLI
-  remain unimplemented.
+- The Issue #13 branch currently implements private in-memory node/edge state;
+  public Database APIs, node deletion, secondary indexes, transactions,
+  persistence, recovery, snapshots, queries, and CLI remain unimplemented.

@@ -28,6 +28,7 @@ pub(all) suberror DatabaseError {
   NodeNotFound(NodeId)
   NodeIdExhausted
   EdgeNotFound(EdgeId)
+  EdgeIdExhausted
   EndpointNodeNotFound(NodeId)
   NodeHasIncidentEdges(NodeId)
   InvalidPropertyValue(property~ : String, reason~ : String)

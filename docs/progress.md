@@ -54,17 +54,20 @@ to Issue #3, where the lexer will exist.
 
 ## Issue #13 feature branch — not merged
 
-The stacked branch `codex/13-in-memory-graph-store` currently contains the
-first private graph-state slice: monotonic node ID allocation with explicit
-exhaustion, node create/get, unique and deterministic labels, idempotent label
-changes, explicit node-property set/remove, finite-Float64 validation, negative
-zero normalization, and input/output collection isolation. Its native tests
-pass 5/5; `moon check --target native`, `moon fmt --check`, `moon info
---target native`, and `git diff --check` pass locally. The generated interface
-adds `DatabaseError::NodeIdExhausted`; `GraphState` remains private. This slice
-was independently reviewed and committed locally; it has not been pushed or
-covered by hosted CI. Edge CRUD, adjacency, node deletion, and indexes remain
-unimplemented.
+The stacked branch `codex/13-in-memory-graph-store` contains the node-state
+slice committed locally as `5304d3a`: monotonic node ID allocation with
+explicit exhaustion, node create/get, unique and deterministic labels,
+idempotent label changes, explicit node-property set/remove, finite-Float64
+validation, negative-zero normalization, and input/output collection isolation.
+The current edge/adjacency slice adds directed create/get/delete, endpoint
+validation, in/out adjacency, edge-property set/remove, detached results, and
+max edge-ID exhaustion. The aggregate native suite passes 10/10; native check,
+format check, info generation and diff check pass locally. Generated
+`pkg.generated.mbti` adds `DatabaseError::NodeIdExhausted` and
+`DatabaseError::EdgeIdExhausted`; `GraphState` remains private. Independent
+review approved the edge slice with non-blocking coverage/documentation
+suggestions, all addressed before committing locally. It has not been pushed or
+covered by hosted CI. Node deletion and secondary indexes remain unimplemented.
 
 The same installed-toolchain `.mbti` plus compiler/test fallback applies because
 `moon ide doc` still reports no backend metadata; the command itself has not
@@ -76,8 +79,8 @@ succeeded.
 |---|---|
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
-| In-memory graph store | Partial private node state on unmerged Issue #13 branch; edge CRUD, adjacency, and deletion remain unimplemented |
-| Adjacency and label/type indexes | Planned; not implemented |
+| In-memory graph store | Private node/edge CRUD and adjacency on unmerged Issue #13 branch; node deletion remains unimplemented |
+| Label/type secondary indexes | Planned; not implemented |
 | Property equality indexes | Planned; not implemented |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |
