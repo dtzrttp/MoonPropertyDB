@@ -69,6 +69,8 @@ fn add_node_property_index_value(
 }
 
 ///|
+/// Reserved for the later production graph/database index-definition path.
+#warnings("-unused_value")
 fn GraphState::create_node_property_index(
   self : GraphState,
   label : String,
@@ -101,6 +103,8 @@ fn GraphState::create_node_property_index(
 }
 
 ///|
+/// Reserved for the later production graph/database property-index query path.
+#warnings("-unused_value")
 fn GraphState::node_ids_by_property_index(
   self : GraphState,
   label : String,
