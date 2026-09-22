@@ -116,6 +116,42 @@ test "wal record decoder rejects invalid framing and unknown operations" {
     _ => fail("unsupported WAL versions must raise")
   }
 
+  let bad_flags : Array[Byte] = encoded.to_array()
+  bad_flags[10] = b"\x01".at(0)
+  try wal_decode(Bytes::from_array(bad_flags), file="wal", offset=6UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=6UL,
+      transaction_id=None,
+      reason="WAL flags are not zero"
+    ) => ()
+    _ => fail("nonzero WAL flags must be corruption")
+  } noraise {
+    _ => fail("nonzero WAL flags must raise")
+  }
+
+  let bad_length : Array[Byte] = encoded.to_array()
+  bad_length[12] = b"\x23".at(0)
+  try wal_decode(Bytes::from_array(bad_length), file="wal", offset=7UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=7UL,
+      transaction_id=None,
+      reason="WAL record length is too short"
+    ) => ()
+    _ => fail("a short declared WAL length must be corruption")
+  } noraise {
+    _ => fail("a short declared WAL length must raise")
+  }
+
+  let with_next_record = Bytes::add(encoded, b"next")
+  let consumed = try! wal_decode(with_next_record, file="wal", offset=8UL)
+  match consumed {
+    WalDecode::Complete(_, length) => assert_eq(length, encoded.length())
+    WalDecode::Truncated =>
+      fail("a complete frame with trailing data must decode")
+  }
+
   let unknown_operation : Array[Byte] = encoded.to_array()
   unknown_operation[32] = b"\x7F".at(0)
   try
