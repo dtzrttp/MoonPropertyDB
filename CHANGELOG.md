@@ -24,9 +24,16 @@ are not listed as delivered.
   `EdgeIdExhausted` (26 categories on this branch) and passes 13/13 native
   tests locally; the hosted native check passed on the initial PR head
   `693f4fb`.
+- On the unmerged Issue #12 feature branch, added private node-label and
+  edge-type inverted indexes with ascending numeric ID buckets, mutation
+  maintenance, copied lookups, and scan-oracle coverage. The full native suite
+  passes 16/16 locally; hosted CI is pending. These indexes are in-memory only;
+  public index APIs, property equality indexes, transactions, persistence,
+  query, and CLI integration remain unimplemented.
 
 ### Not included
 
-- The Issue #13 branch currently implements private in-memory node/edge state;
-  public Database APIs, secondary indexes, transactions, persistence, recovery,
+- The Issue #13 base branch implements private in-memory node/edge state. The
+  Issue #12 candidate adds private label/type indexes on top; public Database
+  APIs, property equality indexes, transactions, persistence, recovery,
   snapshots, queries, and CLI remain unimplemented.
