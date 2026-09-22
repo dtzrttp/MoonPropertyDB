@@ -1,10 +1,15 @@
-# Third-party components
+# Third-party components and source provenance
 
-No third-party runtime package has been selected or declared for MoonPropertyDB
-at this foundation stage. The MoonBit CLI is a development tool and is not a
-runtime dependency bundled by this project.
+The current runtime implementation has no third-party Mooncakes dependency.
+The test package imports `moonbitlang/core/double`, which is part of the
+MoonBit toolchain rather than a vendored runtime component.
 
-Before adding a dependency, contributors must verify its exact registry name
-and version, inspect the source and license, confirm the API against the current
-toolchain, and record that information here. This file must be updated with any
-dependency introduction or removal.
+MoonPropertyDB is an original implementation for this repository. No upstream
+database source, copied fixture, or external test dataset is included in the
+current tree. Generated `pkg.generated.mbti` is produced by `moon info` and is
+kept only for public-interface review.
+
+Before adding a dependency or copied material, record its exact name and
+version, source URL, API usage, license, attribution requirements, and
+redistribution scope here. Test data and generated code require the same
+provenance review.

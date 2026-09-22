@@ -1,7 +1,9 @@
 # Security policy
 
 MoonPropertyDB is under active development and is not yet suitable for storing
-application data. The current repository contains only a project scaffold.
+application data. The current repository contains a tested in-memory graph and
+transaction foundation; persistent storage, recovery, snapshots, queries, and
+the CLI are not implemented yet.
 
 Please report suspected vulnerabilities through
 [GitHub's private vulnerability reporting for this repository](https://github.com/dtzrttp/MoonPropertyDB/security/advisories/new).

@@ -1,45 +1,41 @@
 # Contributing to MoonPropertyDB
 
-MoonPropertyDB is in early development. Please check the
-[v0.1.0 milestone](https://github.com/dtzrttp/MoonPropertyDB/milestone/1) and
-open or use a focused issue before starting a substantial change.
+MoonPropertyDB is in early development. Read the approved design and current
+status before starting work, and keep the implementation boundary honest.
 
-## Branches and pull requests
+## Development workflow
 
-- Use an issue-specific branch such as `codex/4-project-foundation` or
-  `codex/<issue>-<topic>`.
-- Keep each pull request focused on one issue and link it with `Fixes #<number>`
-  when it fully resolves that issue.
-- Describe what changed, exact commands and results used to verify it, and any
-  known limitations. Do not describe planned work as complete.
-- Update `CHANGELOG.md` and `docs/progress.md` when project status or delivered
-  capabilities change.
+- Use an issue-specific `codex/` branch when remote issue tracking is enabled.
+- Keep each change focused and use meaningful commits; do not use empty,
+  duplicate, or mechanical commits to inflate history.
+- Add behavior tests before implementation changes when practical.
+- Describe implementation, exact verification commands, and known limits in
+  every review or merge request.
+- Update `CHANGELOG.md`, `docs/progress.md`, and relevant design notes as
+  verified behavior changes.
 
-## MoonBit changes
+## MoonBit requirements
 
-- For behavior changes, write focused tests first and verify the failing case
-  before implementing the behavior.
-- Verify the installed MoonBit version with `moon version`. Confirm every
-  unfamiliar standard-library or package API with `moon ide doc`; do not infer
+- Verify the installed toolchain with `moon version --all`.
+- Confirm unfamiliar APIs against the current toolchain; do not infer MoonBit
   signatures from another language or an outdated example.
-- Before adding a Mooncakes dependency, inspect its exact registry version,
-  source, license, and API. Record the decision in `THIRD_PARTY.md`.
-- Keep packages acyclic, document public APIs, use structured errors for
-  expected failures, and keep internal storage/index details private.
-- Review generated `.mbti` files after `moon info --target native`; include
-  interface changes only when intentional.
+- Keep public concrete types at the public package boundary and internal graph,
+  index, log, and storage representations private.
+- Use structured errors for expected failures; do not panic on ordinary input.
+- Review generated `pkg.generated.mbti` after `moon info`; include only
+  intentional public interface changes.
+- Record every dependency's exact registry name, version, source, API, and
+  license in `THIRD_PARTY.md` before adding it.
 
-## Checks
-
-From the repository root, run:
+## Required local checks
 
 ```sh
-moon check --target native
-moon test --target native
+moon check --deny-warn
+moon test --deny-warn
+moon build --target native
 moon fmt --check
 moon info --target native
 git diff --check
 ```
 
-Report the actual output and any command that could not be run. An empty test
-suite is not evidence that a planned feature works.
+An empty test suite is not evidence that a planned database capability works.

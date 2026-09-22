@@ -1,91 +1,70 @@
 # Architecture overview
 
-**Status:** this is the approved design for v0.1, not a description of
-implemented database behavior. The repository currently has only its project
-and MoonBit module scaffold. The detailed, maintainer-approved specification is
-[`superpowers/specs/2026-09-20-moonpropertydb-design.md`](superpowers/specs/2026-09-20-moonpropertydb-design.md).
+MoonPropertyDB is an embedded MoonBit property-graph library. The current
+snapshot is the tested in-memory foundation; persistent storage and the query
+and CLI layers remain planned v0.1 work.
 
-## Intended layers
+## Current package boundary
 
-The application and CLI use a documented `database` API. A single MoonBit
-module is divided into acyclic packages so the graph model, indexes, codecs,
-storage, transactions, and query stages can be tested independently.
+The repository currently uses one root MoonBit package while the implementation
+is split into cohesive source files:
+
+```text
+model.mbt          scalar values, node/edge IDs, detached records
+errors.mbt         structured public error categories
+graph.mbt          private graph state, adjacency and secondary indexes
+database.mbt       public in-memory database boundary
+transaction.mbt    detached candidate and commit/rollback lifecycle
+*_test.mbt         public and white-box behavior tests
+examples/          runnable in-memory example
+```
+
+The public generated interface is reviewed through `pkg.generated.mbti`.
+Private graph and index representations do not cross the `Database` boundary.
+
+## Implemented foundation
+
+The current code supports typed IDs, scalar properties, node and directed-edge
+CRUD, endpoint validation, incoming/outgoing adjacency, node-label and
+edge-type indexes, node/edge equality-index maintenance, structured failures,
+and a single active writer over a detached candidate graph. Commit publishes
+the candidate atomically to the in-memory committed state; rollback discards
+it. A failed transaction is poisoned until rollback.
+
+The implementation is intentionally not described as a persistent database.
+`Database::new_in_memory()` is the only constructor currently available.
+
+## Planned v0.1 layers
 
 ```text
 Application / CLI
         |
         v
-Public database API
+Public Database API
         |
   +-----+------------------+
   |                        |
   v                        v
-Transaction manager    Read-only query pipeline
-  |                    Lexer -> Parser/AST -> Semantic validation
+Transaction manager    Lexer -> Parser/AST -> Validator
   |                                      -> Planner -> Executor
   v                        |
 Candidate graph state <----+
   |
-  +-- node and edge ID maps
-  +-- label and edge-type indexes
-  +-- incoming and outgoing adjacency
-  +-- declared property equality indexes
+  +-- ID maps, adjacency, label/type indexes, equality indexes
   |
   v
 Versioned commit log + snapshots/checkpoints
 ```
 
-The intended dependency direction is `cmd -> database`, with `database`
-coordinating `transaction`, `query`, `storage`, and `graph`; model and errors
-remain foundational. The query pipeline reads committed graph state. Storage
-code owns durable formats and recovery, while internal index and log-record
-types do not escape the public API.
+The planned storage layer must append one versioned, checksummed transaction
+record before publishing committed state. Startup will validate a compatible
+snapshot and replay later complete records. The planned query layer is a
+bounded read-only graph subset, not full openCypher. The CLI and dependency
+graph example are still to be implemented.
 
-## Data and indexes
+## Correctness boundaries
 
-Nodes have immutable database-assigned IDs, string labels, and scalar
-properties. Directed edges have immutable IDs, endpoints, one string type, and
-scalar properties. The planned scalar variants are Bool, Int64, finite Float64,
-String, and Bytes. Nested values, arrays, and object references are excluded
-from v0.1.
-
-The graph maintains ID, label, edge-type, and incoming/outgoing adjacency
-indexes. User-declared equality indexes are scoped by entity kind and label or
-edge type; definitions persist and derived index contents are rebuilt during
-recovery. Index changes are part of a transaction's candidate state so a
-failure or rollback cannot publish partial index updates.
-
-## Transactions and durable state
-
-The v0.1 design allows one writer per database directory. A write transaction
-modifies a private candidate graph/index state; ordinary reads continue to see
-the last committed state. Commit validates the candidate, appends one complete
-versioned and checksummed transaction record, synchronizes the log, and only
-then publishes the candidate in memory. Rollback discards it. A failed write
-poisons the transaction, which must be rolled back.
-
-Startup selects and validates a snapshot, rebuilds derived indexes, and replays
-subsequent complete WAL records. An incomplete final record is treated as a
-truncated tail; a complete record with invalid framing or checksum is reported
-as corruption, not silently skipped. Checkpoint writes and synchronizes a
-temporary snapshot before publishing its generation through a versioned
-manifest.
-
-These are design invariants only. The current implementation has no graph
-state, transaction manager, WAL, snapshot, checkpoint, or recovery path.
-Locking, durable sync, atomic replacement, and directory synchronization must
-be verified for each supported native platform before those guarantees can be
-claimed. Windows and Linux durability remain unverified gates.
-
-## Query pipeline
-
-The planned read-only language supports directed paths with up to three hops,
-labels, edge types, equality predicates joined by `AND`, property/ID/label
-projections, and `LIMIT`. It is not full openCypher. The lexer, parser, semantic
-validator, planner, and executor are separate testable stages. Planning prefers
-node-ID equality, applicable property equality indexes, label indexes, then a
-full node scan; result ordering is deterministic.
-
-No query parser, planner, executor, or CLI command is implemented yet. The
-planned grammar and explicit exclusions are recorded in the
-[approved design](superpowers/specs/2026-09-20-moonpropertydb-design.md).
+The design excludes multi-writer concurrency, MVCC, distributed transactions,
+range/composite/full-text/vector indexes, network serving, and browser/Wasm
+persistence. No durability, recovery, snapshot, locking, query, or CLI claim
+should be made until its implementation and integration tests exist.
