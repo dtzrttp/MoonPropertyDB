@@ -139,7 +139,7 @@ pub fn Database::close(self : Database) -> Unit raise DatabaseError
 - Consumes: the candidate/status handle, all existing `GraphState` mutation methods, and graph/index lookup methods.
 - Produces: documented transaction methods for node/edge creation, reads, labels, properties, strict/cascade deletion, edge deletion, and property-index definitions.
 
-- [ ] **Step 1: Write failing tests.** Cover all existing graph operations through a transaction. For each expected failure, snapshot candidate records/indexes/adjacency, assert the original structured error and exact unchanged state, assert commit is rejected as failed, and assert rollback succeeds.
+- [ ] **Step 1: Write failing tests.** Cover all existing graph operations through a transaction. For each expected failure, snapshot candidate records/indexes/adjacency, assert the original structured error and exact unchanged state, and assert the private shared status becomes `Failed`. Public commit/rollback terminal behavior is tested in Task 4 after those methods exist.
 
 ```moonbit
 test "failed write poisons transaction without partial candidate mutation" {
@@ -150,8 +150,7 @@ test "failed write poisons transaction without partial candidate mutation" {
   let error = try transaction.set_node_property(node, "age", PropertyValue::Float64(Double::nan())) catch error { error }
   assert_eq(error, DatabaseError::InvalidPropertyValue(property="age", reason="non-finite float"))
   assert_eq(transaction.get_node(node), before)
-  assert_raises(() => transaction.commit(), DatabaseError::TransactionFailed)
-  transaction.rollback()
+  assert_eq(transaction.status.get(), Failed)
 }
 ```
 
