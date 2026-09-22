@@ -17,6 +17,8 @@ test "graph candidate copy detaches graph and every index collection" {
   try! original.create_node_property_index("User", "name")
   try! original.create_edge_property_index("KNOWS", "weight")
   let copy = original.copy_detached()
+  assert_eq(try! copy.create_node([], {}), NodeId(3))
+  assert_eq(try! copy.create_edge(first, second, "KNOWS", {}), EdgeId(2))
   match copy.nodes.get(first) {
     Some(node) => {
       node.labels.push("Changed")
