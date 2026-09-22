@@ -5,12 +5,32 @@ priv struct GraphState {
   nodes : Map[NodeId, Node]
   edges : Map[EdgeId, Edge]
   node_ids_by_label : Map[String, Array[NodeId]]
+  node_property_indexes : Map[
+    NodePropertyIndex,
+    Map[PropertyValue, Array[NodeId]],
+  ]
   edge_ids_by_type : Map[String, Array[EdgeId]]
+  edge_property_indexes : Map[
+    EdgePropertyIndex,
+    Map[PropertyValue, Array[EdgeId]],
+  ]
   outgoing_edge_ids : Map[NodeId, Array[EdgeId]]
   incoming_edge_ids : Map[NodeId, Array[EdgeId]]
   mut next_node_id : UInt64?
   mut next_edge_id : UInt64?
 }
+
+///|
+priv struct NodePropertyIndex {
+  label : String
+  property : String
+} derive(Eq, Hash)
+
+///|
+priv struct EdgePropertyIndex {
+  edge_type : String
+  property : String
+} derive(Eq, Hash)
 
 ///|
 /// Create an empty graph state with the first database-assigned ID reserved.
@@ -20,11 +40,303 @@ fn GraphState::new() -> GraphState {
     nodes: Map([]),
     edges: Map([]),
     node_ids_by_label: Map([]),
+    node_property_indexes: Map([]),
     edge_ids_by_type: Map([]),
+    edge_property_indexes: Map([]),
     outgoing_edge_ids: Map([]),
     incoming_edge_ids: Map([]),
     next_node_id: Some(1UL),
     next_edge_id: Some(1UL),
+  }
+}
+
+///|
+fn NodePropertyIndex::new(
+  label : String,
+  property : String,
+) -> NodePropertyIndex {
+  { label, property, }
+}
+
+///|
+fn EdgePropertyIndex::new(
+  edge_type : String,
+  property : String,
+) -> EdgePropertyIndex {
+  { edge_type, property, }
+}
+
+///|
+fn node_property_index_name(label : String, property : String) -> String {
+  String::add(String::add("node:", label), String::add(".", property))
+}
+
+///|
+fn add_node_property_index_value(
+  values : Map[PropertyValue, Array[NodeId]],
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  let ids = match values.get(value) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+  ids.push(node_id)
+  ids.sort_by((left, right) => compare_node_ids(left, right))
+  ids.dedup()
+  values.set(value, ids)
+}
+
+///|
+fn remove_node_property_index_value(
+  values : Map[PropertyValue, Array[NodeId]],
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  match values.get(value) {
+    Some(ids) => {
+      let remaining : Array[NodeId] = []
+      for existing_id in ids.iter() {
+        if existing_id != node_id {
+          remaining.push(existing_id)
+        }
+      }
+      if remaining.length() == 0 {
+        values.remove(value)
+      } else {
+        values.set(value, remaining)
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::add_node_property_posting(
+  self : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      add_node_property_index_value(values, value, node_id)
+      self.node_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::remove_node_property_posting(
+  self : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+  node_id : NodeId,
+) -> Unit {
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      remove_node_property_index_value(values, value, node_id)
+      self.node_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
+/// Reserved for the later production graph/database index-definition path.
+#warnings("-unused_value")
+fn GraphState::create_node_property_index(
+  self : GraphState,
+  label : String,
+  property : String,
+) -> Unit raise DatabaseError {
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(_) =>
+      raise DatabaseError::IndexAlreadyExists(
+        name=node_property_index_name(label, property),
+      )
+    None => ()
+  }
+  let values : Map[PropertyValue, Array[NodeId]] = Map([])
+  for node_id, node in self.nodes {
+    let mut has_label = false
+    for node_label in node.labels.iter() {
+      if node_label == label {
+        has_label = true
+      }
+    }
+    if has_label {
+      match node.properties.get(property) {
+        Some(value) => add_node_property_index_value(values, value, node_id)
+        None => ()
+      }
+    }
+  }
+  self.node_property_indexes.set(definition, values)
+}
+
+///|
+/// Reserved for the later production graph/database property-index query path.
+#warnings("-unused_value")
+fn GraphState::node_ids_by_property_index(
+  self : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[NodeId]? raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let definition = NodePropertyIndex::new(label, property)
+  match self.node_property_indexes.get(definition) {
+    Some(values) =>
+      Some(
+        match values.get(canonical) {
+          Some(ids) => ids.copy()
+          None => []
+        },
+      )
+    None => None
+  }
+}
+
+///|
+fn edge_property_index_name(edge_type : String, property : String) -> String {
+  String::add(String::add("edge:", edge_type), String::add(".", property))
+}
+
+///|
+fn add_edge_property_index_value(
+  values : Map[PropertyValue, Array[EdgeId]],
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  let ids = match values.get(value) {
+    Some(ids) => ids.copy()
+    None => []
+  }
+  ids.push(edge_id)
+  ids.sort_by((left, right) => compare_edge_ids(left, right))
+  ids.dedup()
+  values.set(value, ids)
+}
+
+///|
+fn remove_edge_property_index_value(
+  values : Map[PropertyValue, Array[EdgeId]],
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  match values.get(value) {
+    Some(ids) => {
+      let remaining : Array[EdgeId] = []
+      for existing_id in ids.iter() {
+        if existing_id != edge_id {
+          remaining.push(existing_id)
+        }
+      }
+      if remaining.length() == 0 {
+        values.remove(value)
+      } else {
+        values.set(value, remaining)
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::add_edge_property_posting(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      add_edge_property_index_value(values, value, edge_id)
+      self.edge_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::remove_edge_property_posting(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      remove_edge_property_index_value(values, value, edge_id)
+      self.edge_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
+/// Build an edge-property equality index over current graph contents.
+#warnings("-unused_value")
+fn GraphState::create_edge_property_index(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+) -> Unit raise DatabaseError {
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(_) =>
+      raise DatabaseError::IndexAlreadyExists(
+        name=edge_property_index_name(edge_type, property),
+      )
+    None => ()
+  }
+  let values : Map[PropertyValue, Array[EdgeId]] = Map([])
+  for edge_id, edge in self.edges {
+    if edge.edge_type == edge_type {
+      match edge.properties.get(property) {
+        Some(value) => add_edge_property_index_value(values, value, edge_id)
+        None => ()
+      }
+    }
+  }
+  self.edge_property_indexes.set(definition, values)
+}
+
+///|
+/// Find matching IDs from a declared edge-property index, returning a detached bucket.
+#warnings("-unused_value")
+fn GraphState::edge_ids_by_property_index(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[EdgeId]? raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(values) =>
+      Some(
+        match values.get(canonical) {
+          Some(ids) => ids.copy()
+          None => []
+        },
+      )
+    None => None
   }
 }
 
@@ -228,6 +540,9 @@ fn GraphState::create_node(
   )
   for label in owned_labels.iter() {
     self.add_node_label_index_entry(label, node_id)
+    for key, value in owned_properties {
+      self.add_node_property_posting(label, key, value, node_id)
+    }
   }
   node_id
 }
@@ -257,6 +572,7 @@ fn GraphState::add_label(
 ) -> Unit raise DatabaseError {
   let node = self.require_node(id)
   let labels = node.labels.copy()
+  let has_label = labels.contains(label)
   labels.push(label)
   labels.sort()
   labels.dedup()
@@ -265,6 +581,11 @@ fn GraphState::add_label(
     Node::Node(id~, labels~, properties=node.properties.copy()),
   )
   self.add_node_label_index_entry(label, id)
+  if !has_label {
+    for key, value in node.properties {
+      self.add_node_property_posting(label, key, value, id)
+    }
+  }
 }
 
 ///|
@@ -276,6 +597,7 @@ fn GraphState::remove_label(
   label : String,
 ) -> Unit raise DatabaseError {
   let node = self.require_node(id)
+  let had_label = node.labels.contains(label)
   let labels : Array[String] = []
   for existing in node.labels.iter() {
     if existing != label {
@@ -287,6 +609,11 @@ fn GraphState::remove_label(
     Node::Node(id~, labels~, properties=node.properties.copy()),
   )
   self.remove_node_label_index_entry(label, id)
+  if had_label {
+    for key, value in node.properties {
+      self.remove_node_property_posting(label, key, value, id)
+    }
+  }
 }
 
 ///|
@@ -302,6 +629,14 @@ fn GraphState::set_node_property(
   let normalized = normalize_property_value(key, value)
   let properties = node.properties.copy()
   properties.set(key, normalized)
+  for label in node.labels.iter() {
+    match node.properties.get(key) {
+      Some(old_value) =>
+        self.remove_node_property_posting(label, key, old_value, id)
+      None => ()
+    }
+    self.add_node_property_posting(label, key, normalized, id)
+  }
   self.nodes.set(id, Node::Node(id~, labels=node.labels.copy(), properties~))
 }
 
@@ -315,6 +650,13 @@ fn GraphState::remove_node_property(
 ) -> Unit raise DatabaseError {
   let node = self.require_node(id)
   let properties = node.properties.copy()
+  match node.properties.get(key) {
+    Some(old_value) =>
+      for label in node.labels.iter() {
+        self.remove_node_property_posting(label, key, old_value, id)
+      }
+    None => ()
+  }
   properties.remove(key)
   self.nodes.set(id, Node::Node(id~, labels=node.labels.copy(), properties~))
 }
@@ -378,6 +720,9 @@ fn GraphState::create_edge(
   incoming.push(edge_id)
   self.incoming_edge_ids.set(to, incoming)
   self.add_edge_type_index_entry(edge_type, edge_id)
+  for property, value in owned_properties {
+    self.add_edge_property_posting(edge_type, property, value, edge_id)
+  }
   edge_id
 }
 
@@ -473,6 +818,9 @@ fn GraphState::delete_edge(
   id : EdgeId,
 ) -> Unit raise DatabaseError {
   let edge = self.require_edge(id)
+  for property_key, value in edge.properties {
+    self.remove_edge_property_posting(edge.edge_type, property_key, value, id)
+  }
   self.remove_edge_type_index_entry(edge.edge_type, id)
   remove_edge_from_index(self.outgoing_edge_ids, edge.from, id)
   remove_edge_from_index(self.incoming_edge_ids, edge.to, id)
@@ -491,6 +839,12 @@ fn GraphState::set_edge_property(
   let edge = self.require_edge(id)
   let normalized = normalize_property_value(key, value)
   let properties = edge.properties.copy()
+  match edge.properties.get(key) {
+    Some(old_value) =>
+      self.remove_edge_property_posting(edge.edge_type, key, old_value, id)
+    None => ()
+  }
+  self.add_edge_property_posting(edge.edge_type, key, normalized, id)
   properties.set(key, normalized)
   self.edges.set(
     id,
@@ -514,6 +868,11 @@ fn GraphState::remove_edge_property(
 ) -> Unit raise DatabaseError {
   let edge = self.require_edge(id)
   let properties = edge.properties.copy()
+  match edge.properties.get(key) {
+    Some(value) =>
+      self.remove_edge_property_posting(edge.edge_type, key, value, id)
+    None => ()
+  }
   properties.remove(key)
   self.edges.set(
     id,
@@ -582,6 +941,9 @@ fn GraphState::delete_node(
   }
   for label in node.labels.iter() {
     self.remove_node_label_index_entry(label, id)
+    for key, value in node.properties {
+      self.remove_node_property_posting(label, key, value, id)
+    }
   }
   self.nodes.remove(id)
   self.outgoing_edge_ids.remove(id)
@@ -609,6 +971,9 @@ fn GraphState::delete_node_cascade(
   }
   for label in node.labels.iter() {
     self.remove_node_label_index_entry(label, id)
+    for key, value in node.properties {
+      self.remove_node_property_posting(label, key, value, id)
+    }
   }
   self.nodes.remove(id)
   self.outgoing_edge_ids.remove(id)

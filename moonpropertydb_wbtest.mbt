@@ -167,6 +167,225 @@ fn assert_node_label_index_matches_scan(
 }
 
 ///|
+fn node_property_ids_by_scan(
+  graph : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[NodeId] raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let ids : Array[NodeId] = []
+  for node_id, node in graph.nodes {
+    let mut has_label = false
+    for node_label in node.labels.iter() {
+      if node_label == label {
+        has_label = true
+      }
+    }
+    if has_label {
+      match node.properties.get(property) {
+        Some(stored) => if stored == canonical { ids.push(node_id) }
+        None => ()
+      }
+    }
+  }
+  ids.sort_by((left, right) => {
+    match (left, right) {
+      (NodeId(left_raw), NodeId(right_raw)) => left_raw.compare(right_raw)
+    }
+  })
+  ids
+}
+
+///|
+fn assert_node_property_index_matches_scan(
+  graph : GraphState,
+  label : String,
+  property : String,
+  value : PropertyValue,
+) -> Unit raise {
+  assert_eq(
+    graph.node_ids_by_property_index(label, property, value),
+    Some(node_property_ids_by_scan(graph, label, property, value)),
+  )
+}
+
+///|
+fn edge_property_ids_by_scan(
+  graph : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+) -> Array[EdgeId] raise DatabaseError {
+  let canonical = normalize_property_value(property, value)
+  let ids : Array[EdgeId] = []
+  for edge_id, edge in graph.edges {
+    if edge.edge_type == edge_type {
+      match edge.properties.get(property) {
+        Some(stored) => if stored == canonical { ids.push(edge_id) }
+        None => ()
+      }
+    }
+  }
+  ids.sort_by((left, right) => compare_edge_ids(left, right))
+  ids
+}
+
+///|
+fn assert_edge_property_index_matches_scan(
+  graph : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+) -> Unit raise {
+  assert_eq(
+    graph.edge_ids_by_property_index(edge_type, property, value),
+    Some(edge_property_ids_by_scan(graph, edge_type, property, value)),
+  )
+}
+
+///|
+test "node property postings match scans across node lifecycle" {
+  let graph = GraphState::new()
+  let first = try! graph.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  try! graph.create_node_property_index("User", "age")
+  try! graph.create_node_property_index("Admin", "age")
+  let second = try! graph.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  let without_age = try! graph.create_node(["User"], {})
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+
+  graph.add_label(second, "Admin") catch {
+    _ => fail("adding indexed label failed")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "Admin",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  graph.set_node_property(second, "age", PropertyValue::Int64(2)) catch {
+    _ => fail("replacing indexed node property failed")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Admin",
+    "age",
+    PropertyValue::Int64(2),
+  )
+  graph.remove_node_property(second, "age") catch {
+    _ => fail("removing indexed node property failed")
+  }
+  graph.remove_node_property(second, "age") catch {
+    _ => fail("repeating removal of an absent property should be idempotent")
+  }
+  graph.set_node_property(second, "age", PropertyValue::Int64(1)) catch {
+    _ => fail("reinserting indexed node property failed")
+  }
+  try
+    graph.set_node_property(
+      second,
+      "age",
+      PropertyValue::Float64(@double.infinity),
+    )
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("non-finite indexed property update should be rejected")
+  } noraise {
+    _ => fail("non-finite indexed property update should be rejected")
+  }
+  assert_eq(
+    (try! graph.get_node(second)).properties.get("age"),
+    Some(PropertyValue::Int64(1)),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  graph.remove_label(second, "Admin") catch {
+    _ => fail("removing indexed label failed")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "Admin",
+    "age",
+    PropertyValue::Int64(1),
+  )
+
+  let neighbor = try! graph.create_node([], {})
+  let connected = try! graph.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  let edge = try! graph.create_edge(neighbor, connected, "LINK", {})
+  try graph.delete_node(connected) catch {
+    DatabaseError::NodeHasIncidentEdges(missing) =>
+      assert_eq(missing, connected)
+    _ => fail("strict delete should reject an indexed connected node")
+  } noraise {
+    _ => fail("strict delete should reject an indexed connected node")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  graph.delete_node_cascade(connected) catch {
+    _ => fail("cascade delete failed")
+  }
+  try graph.get_edge(edge) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge)
+    _ => fail("cascade should delete incident edge")
+  } noraise {
+    _ => fail("cascade should delete incident edge")
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "age",
+    PropertyValue::Int64(1),
+  )
+  assert_eq(try! graph.get_node(first).id, first)
+  assert_eq(try! graph.get_node(without_age).id, without_age)
+  try
+    graph.create_node(["User"], {
+      "age": PropertyValue::Float64(@double.infinity),
+    })
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("invalid node creation should be rejected")
+  } noraise {
+    _ => fail("invalid node creation should be rejected")
+  }
+  assert_eq(try! graph.create_node([], {}), NodeId(6))
+  match graph.node_property_indexes.get(NodePropertyIndex::new("User", "age")) {
+    Some(_) => ()
+    None => fail("deleting indexed nodes must retain the definition")
+  }
+  match
+    graph.node_property_indexes.get(NodePropertyIndex::new("Admin", "age")) {
+    Some(values) => assert_eq(values.get(PropertyValue::Int64(1)), None)
+    None => fail("removing the final matching label must retain the definition")
+  }
+}
+
+///|
 fn edge_type_ids_by_scan(
   graph : GraphState,
   edge_type : String,
@@ -738,4 +957,885 @@ test "graph state keeps edge-type index consistent through mutations" {
   )
   assert_eq(accepted, EdgeId(1))
   assert_edge_type_index_matches_scan(invalid_graph, "ACCEPTED")
+}
+
+///|
+test "node property index builds from existing nodes and distinguishes absent definitions" {
+  let graph = GraphState::new()
+  let first = try! graph.create_node(["User"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+  let second = try! graph.create_node(["User"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+  let no_email = try! graph.create_node(["User"], {})
+  let other_label = try! graph.create_node(["Admin"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+
+  try! graph.create_node_property_index("User", "email")
+  try! graph.create_node_property_index("Ghost", "email")
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "User",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    Some([first, second]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "User",
+      "email",
+      PropertyValue::String("missing@example.test"),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Admin",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    None,
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Ghost",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    Some([]),
+  )
+  assert_eq(try! graph.get_node(no_email).id, no_email)
+  assert_eq(try! graph.get_node(other_label).id, other_label)
+  assert_node_property_index_matches_scan(
+    graph,
+    "User",
+    "email",
+    PropertyValue::String("a@example.test"),
+  )
+}
+
+///|
+test "node property index definitions are scoped and duplicates are rejected" {
+  let graph = GraphState::new()
+  let user = try! graph.create_node(["User"], {
+    "email": PropertyValue::String("u@example.test"),
+    "name": PropertyValue::String("User"),
+  })
+  let admin = try! graph.create_node(["Admin"], {
+    "email": PropertyValue::String("a@example.test"),
+  })
+  try! graph.create_node_property_index("User", "email")
+  try! graph.create_node_property_index("User", "name")
+  try! graph.create_node_property_index("Admin", "email")
+
+  try graph.create_node_property_index("User", "email") catch {
+    DatabaseError::IndexAlreadyExists(..) => ()
+    _ => fail("expected duplicate node property index to be rejected")
+  } noraise {
+    _ => fail("duplicate node property index must fail")
+  }
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "User",
+      "email",
+      PropertyValue::String("u@example.test"),
+    ),
+    Some([user]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Admin",
+      "email",
+      PropertyValue::String("a@example.test"),
+    ),
+    Some([admin]),
+  )
+}
+
+///|
+test "edge property index builds from existing edges and distinguishes absent definitions" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node([], {})
+  let to = try! graph.create_node([], {})
+  let first = try! graph.create_edge(from, to, "LINKS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let second = try! graph.create_edge(from, to, "LINKS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let wrong_type = try! graph.create_edge(from, to, "MENTIONS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let missing_property = try! graph.create_edge(from, to, "LINKS", {})
+
+  try! graph.create_edge_property_index("LINKS", "weight")
+  try! graph.create_edge_property_index("EMPTY", "weight")
+  try! graph.create_edge_property_index("LINKS", "kind")
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINKS",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([first, second]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINKS",
+      "weight",
+      PropertyValue::Int64(9),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "EMPTY",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINKS",
+      "kind",
+      PropertyValue::String("dependency"),
+    ),
+    Some([]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "MENTIONS",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    None,
+  )
+  try graph.create_edge_property_index("LINKS", "weight") catch {
+    DatabaseError::IndexAlreadyExists(..) => ()
+    _ => fail("expected duplicate edge property index to be rejected")
+  } noraise {
+    _ => fail("duplicate edge property index must fail")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "LINKS",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  assert_eq(try! graph.get_edge(wrong_type).id, wrong_type)
+  assert_eq(try! graph.get_edge(missing_property).id, missing_property)
+}
+
+///|
+fn task3_one_bytes() -> Bytes {
+  Bytes::makei(3, index => {
+    match index {
+      0 => b'o'
+      1 => b'n'
+      _ => b'e'
+    }
+  })
+}
+
+///|
+test "property indexes preserve typed scalar equality" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node([], {})
+  let to = try! graph.create_node([], {})
+  let bool_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Bool(true),
+  })
+  let int_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Int64(1),
+  })
+  let float_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Float64(1.0),
+  })
+  let string_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::String("one"),
+  })
+  let bytes_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let same_bytes_node = try! graph.create_node(["Value"], {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let zero_node = try! graph.create_node(["Value"], {
+    "zero": PropertyValue::Float64(-0.0),
+  })
+
+  let bool_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Bool(true),
+  })
+  let int_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Int64(1),
+  })
+  let float_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Float64(1.0),
+  })
+  let string_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::String("one"),
+  })
+  let bytes_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let same_bytes_edge = try! graph.create_edge(from, to, "VALUE", {
+    "v": PropertyValue::Bytes(task3_one_bytes()),
+  })
+  let zero_edge = try! graph.create_edge(from, to, "VALUE", {
+    "zero": PropertyValue::Float64(-0.0),
+  })
+
+  try! graph.create_node_property_index("Value", "v")
+  try! graph.create_node_property_index("Value", "zero")
+  try! graph.create_edge_property_index("VALUE", "v")
+  try! graph.create_edge_property_index("VALUE", "zero")
+
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_node]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index("Value", "v", PropertyValue::Int64(1)),
+    Some([int_node]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Float64(1.0),
+    ),
+    Some([float_node]),
+  )
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::String("one"),
+    ),
+    Some([string_node]),
+  )
+  let node_bytes_lookup = task3_one_bytes()
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bytes(node_bytes_lookup),
+    ),
+    Some([bytes_node, same_bytes_node]),
+  )
+  for zero in [PropertyValue::Float64(-0.0), PropertyValue::Float64(0.0)] {
+    assert_eq(
+      try! graph.node_ids_by_property_index("Value", "zero", zero),
+      Some([zero_node]),
+    )
+    assert_node_property_index_matches_scan(graph, "Value", "zero", zero)
+  }
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Bool(true),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Int64(1),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Float64(1.0),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::String("one"),
+  )
+  assert_node_property_index_matches_scan(
+    graph,
+    "Value",
+    "v",
+    PropertyValue::Bytes(node_bytes_lookup),
+  )
+  let detached_node_ids = match
+    (try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bool(true),
+    )) {
+    Some(ids) => ids
+    None => fail("expected a declared node index")
+  }
+  detached_node_ids.push(NodeId(999))
+  assert_eq(
+    try! graph.node_ids_by_property_index(
+      "Value",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_node]),
+  )
+
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_edge]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index("VALUE", "v", PropertyValue::Int64(1)),
+    Some([int_edge]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Float64(1.0),
+    ),
+    Some([float_edge]),
+  )
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::String("one"),
+    ),
+    Some([string_edge]),
+  )
+  let edge_bytes_lookup = task3_one_bytes()
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bytes(edge_bytes_lookup),
+    ),
+    Some([bytes_edge, same_bytes_edge]),
+  )
+  for zero in [PropertyValue::Float64(-0.0), PropertyValue::Float64(0.0)] {
+    assert_eq(
+      try! graph.edge_ids_by_property_index("VALUE", "zero", zero),
+      Some([zero_edge]),
+    )
+    assert_edge_property_index_matches_scan(graph, "VALUE", "zero", zero)
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Bool(true),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Float64(1.0),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::String("one"),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "VALUE",
+    "v",
+    PropertyValue::Bytes(edge_bytes_lookup),
+  )
+  let detached_edge_ids = match
+    (try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bool(true),
+    )) {
+    Some(ids) => ids
+    None => fail("expected a declared edge index")
+  }
+  detached_edge_ids.push(EdgeId(999))
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "VALUE",
+      "v",
+      PropertyValue::Bool(true),
+    ),
+    Some([bool_edge]),
+  )
+}
+
+///|
+test "edge property postings match scans across edge lifecycle and cascade" {
+  let graph = GraphState::new()
+  let left = try! graph.create_node([], {})
+  let center = try! graph.create_node([], {})
+  let right = try! graph.create_node([], {})
+  try! graph.create_edge_property_index("IN", "weight")
+  try! graph.create_edge_property_index("OUT", "weight")
+  try! graph.create_edge_property_index("LOOP", "weight")
+  try! graph.create_edge_property_index("KEEP", "weight")
+
+  let incoming = try! graph.create_edge(left, center, "IN", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let parallel = try! graph.create_edge(left, center, "IN", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let outgoing = try! graph.create_edge(center, right, "OUT", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let self_loop = try! graph.create_edge(center, center, "LOOP", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let keep = try! graph.create_edge(left, right, "KEEP", {
+    "weight": PropertyValue::Int64(1),
+  })
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+
+  graph.set_edge_property(incoming, "weight", PropertyValue::Int64(2)) catch {
+    _ => fail("replacing indexed edge property failed")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(2),
+  )
+  graph.remove_edge_property(incoming, "weight") catch {
+    _ => fail("removing indexed edge property failed")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  graph.remove_edge_property(incoming, "weight") catch {
+    _ => fail("repeating removal of an absent property should be idempotent")
+  }
+  graph.set_edge_property(incoming, "weight", PropertyValue::Int64(1)) catch {
+    _ => fail("reinserting indexed edge property failed")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  graph.delete_edge(incoming) catch {
+    _ => fail("deleting indexed edge failed")
+  }
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "IN",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([parallel]),
+  )
+
+  try graph.delete_node(center) catch {
+    DatabaseError::NodeHasIncidentEdges(missing) => assert_eq(missing, center)
+    _ => fail("strict delete should reject incident indexed edges")
+  } noraise {
+    _ => fail("strict delete should reject incident indexed edges")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  graph.delete_node_cascade(center) catch {
+    _ => fail("cascade delete failed")
+  }
+  for edge_type in ["IN", "OUT", "LOOP"] {
+    assert_edge_property_index_matches_scan(
+      graph,
+      edge_type,
+      "weight",
+      PropertyValue::Int64(1),
+    )
+  }
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "KEEP",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([keep]),
+  )
+  for edge_id in [parallel, outgoing, self_loop] {
+    try graph.get_edge(edge_id) catch {
+      DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge_id)
+      _ => fail("cascade should delete every incident edge")
+    } noraise {
+      _ => fail("cascade should delete every incident edge")
+    }
+  }
+}
+
+///|
+test "failed graph mutations preserve property index state" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node([], {})
+  let to = try! graph.create_node([], {})
+  try! graph.create_edge_property_index("LINK", "weight")
+  let edge = try! graph.create_edge(from, to, "LINK", {
+    "weight": PropertyValue::Int64(1),
+  })
+  assert_eq(edge, EdgeId(1))
+  let definition = EdgePropertyIndex::new("LINK", "weight")
+
+  let before_missing_endpoint_edge = try! graph.get_edge(edge)
+  let before_missing_endpoint_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_missing_endpoint_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_missing_endpoint_outgoing = match
+    graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_missing_endpoint_incoming = match graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
+  try
+    graph.create_edge(NodeId(99), to, "LINK", {
+      "weight": PropertyValue::Int64(1),
+    })
+  catch {
+    DatabaseError::EndpointNodeNotFound(missing) =>
+      assert_eq(missing, NodeId(99))
+    _ => fail("missing endpoint should be rejected")
+  } noraise {
+    _ => fail("missing endpoint should be rejected")
+  }
+  assert_eq(try! graph.get_edge(edge), before_missing_endpoint_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_missing_endpoint_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_missing_endpoint_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_missing_endpoint_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_missing_endpoint_incoming),
+  )
+
+  let before_non_finite_create_edge = try! graph.get_edge(edge)
+  let before_non_finite_create_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_non_finite_create_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_non_finite_create_outgoing = match
+    graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_non_finite_create_incoming = match
+    graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
+  try
+    graph.create_edge(from, to, "LINK", {
+      "weight": PropertyValue::Float64(@double.infinity),
+    })
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("non-finite edge property should be rejected")
+  } noraise {
+    _ => fail("non-finite edge property should be rejected")
+  }
+  assert_eq(try! graph.get_edge(edge), before_non_finite_create_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_non_finite_create_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_non_finite_create_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_non_finite_create_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_non_finite_create_incoming),
+  )
+  let next_edge_after_rejected_creates = try! graph.create_edge(
+    from,
+    to,
+    "LINK",
+    { "weight": PropertyValue::Int64(1) },
+  )
+  assert_eq(next_edge_after_rejected_creates, EdgeId(2))
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([edge, next_edge_after_rejected_creates]),
+  )
+
+  let before_duplicate_index_edge = try! graph.get_edge(edge)
+  let before_duplicate_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_duplicate_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_duplicate_outgoing = match graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_duplicate_incoming = match graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
+  try graph.create_edge_property_index("LINK", "weight") catch {
+    DatabaseError::IndexAlreadyExists(..) => ()
+    _ => fail("duplicate edge index should be rejected")
+  } noraise {
+    _ => fail("duplicate edge index should be rejected")
+  }
+  assert_eq(try! graph.get_edge(edge), before_duplicate_index_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_duplicate_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_duplicate_definition),
+  )
+  assert_eq(graph.outgoing_edge_ids.get(from), Some(before_duplicate_outgoing))
+  assert_eq(graph.incoming_edge_ids.get(to), Some(before_duplicate_incoming))
+
+  let before_non_finite_update_edge = try! graph.get_edge(edge)
+  let before_non_finite_update_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_non_finite_update_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_non_finite_update_outgoing = match
+    graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_non_finite_update_incoming = match
+    graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
+  try
+    graph.set_edge_property(
+      edge,
+      "weight",
+      PropertyValue::Float64(@double.infinity),
+    )
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("invalid edge property update should be rejected")
+  } noraise {
+    _ => fail("invalid edge property update should be rejected")
+  }
+  assert_eq(try! graph.get_edge(edge), before_non_finite_update_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_non_finite_update_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_non_finite_update_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_non_finite_update_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_non_finite_update_incoming),
+  )
+
+  let before_missing_delete_edge = try! graph.get_edge(edge)
+  let before_missing_delete_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_missing_delete_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_missing_delete_outgoing = match graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_missing_delete_incoming = match graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
+  try graph.delete_edge(EdgeId(99)) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("missing edge deletion should be rejected")
+  } noraise {
+    _ => fail("missing edge deletion should be rejected")
+  }
+  assert_eq(try! graph.get_edge(edge), before_missing_delete_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_missing_delete_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_missing_delete_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_missing_delete_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_missing_delete_incoming),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+
+  let cascade_graph = GraphState::new()
+  let left = try! cascade_graph.create_node([], {})
+  let center = try! cascade_graph.create_node(["Center"], {
+    "rank": PropertyValue::Int64(1),
+  })
+  let right = try! cascade_graph.create_node([], {})
+  try! cascade_graph.create_node_property_index("Center", "rank")
+  try! cascade_graph.create_edge_property_index("LINK", "weight")
+  let incoming = try! cascade_graph.create_edge(left, center, "LINK", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let outgoing = try! cascade_graph.create_edge(center, right, "LINK", {
+    "weight": PropertyValue::Int64(2),
+  })
+  match cascade_graph.outgoing_edge_ids.get(center) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected outgoing adjacency entry")
+  }
+  try cascade_graph.delete_node_cascade(center) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("stale adjacency should be rejected before cascade mutation")
+  } noraise {
+    _ => fail("stale adjacency should be rejected before cascade mutation")
+  }
+  assert_node_property_index_matches_scan(
+    cascade_graph,
+    "Center",
+    "rank",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    cascade_graph,
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    cascade_graph,
+    "LINK",
+    "weight",
+    PropertyValue::Int64(2),
+  )
+  assert_eq(try! cascade_graph.get_edge(incoming).id, incoming)
+  assert_eq(try! cascade_graph.get_edge(outgoing).id, outgoing)
+  try cascade_graph.get_edge(EdgeId(99)) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("stale adjacency reference must not name an edge")
+  } noraise {
+    _ => fail("stale adjacency reference must not name an edge")
+  }
+  let next_edge = try! cascade_graph.create_edge(left, right, "AFTER", {})
+  assert_eq(next_edge, EdgeId(3))
 }
