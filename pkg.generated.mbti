@@ -14,6 +14,7 @@ pub(all) suberror DatabaseError {
   DatabaseClosed
   IncompatibleDatabaseFormat(version~ : UInt16)
   WriterLockOccupied(path~ : String)
+  WriterTransactionActive
   NodeNotFound(NodeId)
   NodeIdExhausted
   EdgeNotFound(EdgeId)
@@ -32,12 +33,22 @@ pub(all) suberror DatabaseError {
   SnapshotChecksumFailed(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?)
   CorruptSnapshot(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?, reason~ : String)
   IoError(file~ : String, operation~ : String, reason~ : String)
+  TransactionFailed
   TransactionAlreadyCommitted
   TransactionAlreadyRolledBack
   CommitOutcomeUnknown
 } derive(Eq, @debug.Debug)
 
 // Types and methods
+pub struct Database {
+  // private fields
+}
+pub fn Database::begin_write(Self) -> WriteTransaction raise DatabaseError
+pub fn Database::close(Self) -> Unit raise DatabaseError
+pub fn Database::get_edge(Self, EdgeId) -> Edge raise DatabaseError
+pub fn Database::get_node(Self, NodeId) -> Node raise DatabaseError
+pub fn Database::new_in_memory() -> Self
+
 pub(all) struct Edge {
   id : EdgeId
   from : NodeId
@@ -72,6 +83,33 @@ pub(all) struct SourcePosition {
   column : Int
 } derive(Eq, @debug.Debug)
 pub fn SourcePosition::SourcePosition(offset~ : UInt64, line~ : Int, column~ : Int) -> Self
+
+pub struct WriteTransaction {
+  // private fields
+}
+pub fn WriteTransaction::add_label(Self, NodeId, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::commit(Self) -> Unit raise DatabaseError
+pub fn WriteTransaction::create_edge(Self, NodeId, NodeId, String, Map[String, PropertyValue]) -> EdgeId raise DatabaseError
+pub fn WriteTransaction::create_edge_property_index(Self, String, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::create_node(Self, Array[String], Map[String, PropertyValue]) -> NodeId raise DatabaseError
+pub fn WriteTransaction::create_node_property_index(Self, String, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::delete_edge(Self, EdgeId) -> Unit raise DatabaseError
+pub fn WriteTransaction::delete_node(Self, NodeId) -> Unit raise DatabaseError
+pub fn WriteTransaction::delete_node_cascade(Self, NodeId) -> Unit raise DatabaseError
+pub fn WriteTransaction::edge_ids_by_property_index(Self, String, String, PropertyValue) -> Array[EdgeId]? raise DatabaseError
+pub fn WriteTransaction::edge_ids_with_type(Self, String) -> Array[EdgeId] raise DatabaseError
+pub fn WriteTransaction::get_edge(Self, EdgeId) -> Edge raise DatabaseError
+pub fn WriteTransaction::get_node(Self, NodeId) -> Node raise DatabaseError
+pub fn WriteTransaction::incoming_edges(Self, NodeId) -> Array[Edge] raise DatabaseError
+pub fn WriteTransaction::node_ids_by_property_index(Self, String, String, PropertyValue) -> Array[NodeId]? raise DatabaseError
+pub fn WriteTransaction::node_ids_with_label(Self, String) -> Array[NodeId] raise DatabaseError
+pub fn WriteTransaction::outgoing_edges(Self, NodeId) -> Array[Edge] raise DatabaseError
+pub fn WriteTransaction::remove_edge_property(Self, EdgeId, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::remove_label(Self, NodeId, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::remove_node_property(Self, NodeId, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::rollback(Self) -> Unit raise DatabaseError
+pub fn WriteTransaction::set_edge_property(Self, EdgeId, String, PropertyValue) -> Unit raise DatabaseError
+pub fn WriteTransaction::set_node_property(Self, NodeId, String, PropertyValue) -> Unit raise DatabaseError
 
 // Type aliases
 pub type Properties = Map[String, PropertyValue]

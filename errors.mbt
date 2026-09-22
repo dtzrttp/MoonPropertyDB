@@ -25,6 +25,7 @@ pub(all) suberror DatabaseError {
   DatabaseClosed
   IncompatibleDatabaseFormat(version~ : UInt16)
   WriterLockOccupied(path~ : String)
+  WriterTransactionActive
   NodeNotFound(NodeId)
   NodeIdExhausted
   EdgeNotFound(EdgeId)
@@ -61,6 +62,7 @@ pub(all) suberror DatabaseError {
     reason~ : String
   )
   IoError(file~ : String, operation~ : String, reason~ : String)
+  TransactionFailed
   TransactionAlreadyCommitted
   TransactionAlreadyRolledBack
   CommitOutcomeUnknown

@@ -3,6 +3,367 @@
 // Keep them focused; public behavior belongs in `_test.mbt`.
 
 ///|
+test "graph candidate copy detaches graph and every index collection" {
+  let original = GraphState::new()
+  let first = try! original.create_node(["User"], {
+    "name": PropertyValue::String("A"),
+  })
+  let second = try! original.create_node(["User"], {
+    "name": PropertyValue::String("B"),
+  })
+  let edge = try! original.create_edge(first, second, "KNOWS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  try! original.create_node_property_index("User", "name")
+  try! original.create_edge_property_index("KNOWS", "weight")
+  let copy = original.copy_detached()
+  assert_eq(try! copy.create_node([], {}), NodeId(3))
+  assert_eq(try! copy.create_edge(first, second, "KNOWS", {}), EdgeId(2))
+  match copy.nodes.get(first) {
+    Some(node) => {
+      node.labels.push("Changed")
+      node.properties.set("name", PropertyValue::String("copy"))
+    }
+    None => fail("expected copied node")
+  }
+  match copy.edges.get(edge) {
+    Some(copied_edge) =>
+      copied_edge.properties.set("weight", PropertyValue::Int64(2))
+    None => fail("expected copied edge")
+  }
+  match copy.node_ids_by_label.get("User") {
+    Some(ids) => ids.push(NodeId(99))
+    None => fail("expected copied label posting")
+  }
+  match copy.edge_ids_by_type.get("KNOWS") {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected copied type posting")
+  }
+  match copy.node_property_indexes.get(NodePropertyIndex::new("User", "name")) {
+    Some(values) =>
+      match values.get(PropertyValue::String("A")) {
+        Some(ids) => ids.push(NodeId(99))
+        None => fail("expected copied node property bucket")
+      }
+    None => fail("expected copied node property index")
+  }
+  match
+    copy.edge_property_indexes.get(EdgePropertyIndex::new("KNOWS", "weight")) {
+    Some(values) =>
+      match values.get(PropertyValue::Int64(1)) {
+        Some(ids) => ids.push(EdgeId(99))
+        None => fail("expected copied edge property bucket")
+      }
+    None => fail("expected copied edge property index")
+  }
+  match copy.outgoing_edge_ids.get(first) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected copied outgoing adjacency")
+  }
+  match copy.incoming_edge_ids.get(second) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected copied incoming adjacency")
+  }
+  copy.set_node_property(first, "name", PropertyValue::String("changed"))
+  copy.delete_edge(edge)
+  assert_eq(
+    (try! original.get_node(first)).properties.get("name"),
+    Some(PropertyValue::String("A")),
+  )
+  assert_eq((try! original.get_node(first)).labels, ["User"])
+  assert_eq(
+    try! original.get_edge(edge),
+    Edge::Edge(id=edge, from=first, to=second, edge_type="KNOWS", properties={
+      "weight": PropertyValue::Int64(1),
+    }),
+  )
+  assert_eq((try! original.outgoing_edges(first)).length(), 1)
+  assert_eq((try! original.incoming_edges(second)).length(), 1)
+  assert_eq(original.node_ids_with_label("User"), [first, second])
+  assert_eq(original.edge_ids_with_type("KNOWS"), [edge])
+  assert_eq(
+    try! original.node_ids_by_property_index(
+      "User",
+      "name",
+      PropertyValue::String("A"),
+    ),
+    Some([first]),
+  )
+  assert_eq(
+    try! original.edge_ids_by_property_index(
+      "KNOWS",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([edge]),
+  )
+  assert_eq(try! original.create_node([], {}), NodeId(3))
+  assert_eq(try! original.create_edge(first, second, "KNOWS", {}), EdgeId(2))
+}
+
+///|
+test "staged data is invisible and only one writer is active" {
+  let database = Database::new_in_memory()
+  let transaction = try! database.begin_write()
+  let staged_node = try! transaction.candidate.create_node(["Staged"], {})
+  try database.get_node(staged_node) catch {
+    DatabaseError::NodeNotFound(id) => assert_eq(id, staged_node)
+    _ => fail("committed reads must not inspect the transaction candidate")
+  } noraise {
+    _ => fail("staged node read must return a structured error")
+  }
+  let shared_database = database
+  try shared_database.begin_write() catch {
+    DatabaseError::WriterTransactionActive => ()
+    _ => fail("a second writer must be rejected while the first is active")
+  } noraise {
+    _ => fail("second writer rejection must return a structured error")
+  }
+}
+
+///|
+fn assert_graph_state_equal(
+  expected : GraphState,
+  actual : GraphState,
+) -> Unit raise {
+  assert_true(actual.nodes == expected.nodes)
+  assert_true(actual.edges == expected.edges)
+  assert_true(actual.node_ids_by_label == expected.node_ids_by_label)
+  assert_true(actual.node_property_indexes == expected.node_property_indexes)
+  assert_true(actual.edge_ids_by_type == expected.edge_ids_by_type)
+  assert_true(actual.edge_property_indexes == expected.edge_property_indexes)
+  assert_true(actual.outgoing_edge_ids == expected.outgoing_edge_ids)
+  assert_true(actual.incoming_edge_ids == expected.incoming_edge_ids)
+  assert_true(actual.next_node_id == expected.next_node_id)
+  assert_true(actual.next_edge_id == expected.next_edge_id)
+}
+
+///|
+fn assert_transaction_failed(transaction : WriteTransaction) -> Unit raise {
+  match transaction.status.val {
+    Failed => ()
+    _ => fail("the graph error must poison the shared transaction status")
+  }
+}
+
+///|
+test "failed write poisons transaction without partial candidate mutation" {
+  let non_finite_database = Database::new_in_memory()
+  let non_finite = try! non_finite_database.begin_write()
+  let non_finite_node = try! non_finite.create_node(["User"], {
+    "age": PropertyValue::Int64(1),
+  })
+  try! non_finite.create_node_property_index("User", "age")
+  let non_finite_before = non_finite.candidate.copy_detached()
+  try
+    non_finite.set_node_property(
+      non_finite_node,
+      "age",
+      PropertyValue::Float64(@double.infinity),
+    )
+  catch {
+    DatabaseError::InvalidPropertyValue(
+      property="age",
+      reason="Float64 properties must be finite"
+    ) => ()
+    _ => fail("non-finite node property update must re-raise its graph error")
+  } noraise {
+    _ => fail("non-finite node property update must raise")
+  }
+  assert_graph_state_equal(non_finite_before, non_finite.candidate)
+  assert_transaction_failed(non_finite)
+
+  let missing_endpoint_database = Database::new_in_memory()
+  let missing_endpoint = try! missing_endpoint_database.begin_write()
+  let source = try! missing_endpoint.create_node([], {})
+  let missing_endpoint_before = missing_endpoint.candidate.copy_detached()
+  try missing_endpoint.create_edge(source, NodeId(99), "MISSING", {}) catch {
+    DatabaseError::EndpointNodeNotFound(id) => assert_eq(id, NodeId(99))
+    _ => fail("missing edge endpoint must re-raise its graph error")
+  } noraise {
+    _ => fail("missing edge endpoint must raise")
+  }
+  assert_graph_state_equal(missing_endpoint_before, missing_endpoint.candidate)
+  assert_transaction_failed(missing_endpoint)
+
+  let duplicate_index_database = Database::new_in_memory()
+  let duplicate_index = try! duplicate_index_database.begin_write()
+  let _indexed_node = try! duplicate_index.create_node(["User"], {
+    "name": PropertyValue::String("Alice"),
+  })
+  try! duplicate_index.create_node_property_index("User", "name")
+  let duplicate_index_before = duplicate_index.candidate.copy_detached()
+  try duplicate_index.create_node_property_index("User", "name") catch {
+    DatabaseError::IndexAlreadyExists(name="node:User.name") => ()
+    _ => fail("duplicate node index must re-raise its graph error")
+  } noraise {
+    _ => fail("duplicate node index must raise")
+  }
+  assert_graph_state_equal(duplicate_index_before, duplicate_index.candidate)
+  assert_transaction_failed(duplicate_index)
+
+  let strict_delete_database = Database::new_in_memory()
+  let strict_delete = try! strict_delete_database.begin_write()
+  let connected = try! strict_delete.create_node(["Center"], {})
+  let other = try! strict_delete.create_node([], {})
+  let connected_edge = try! strict_delete.create_edge(
+    connected,
+    other,
+    "LINK",
+    {},
+  )
+  let strict_delete_before = strict_delete.candidate.copy_detached()
+  try strict_delete.delete_node(connected) catch {
+    DatabaseError::NodeHasIncidentEdges(id) => assert_eq(id, connected)
+    _ => fail("strict deletion must re-raise the incident-edge error")
+  } noraise {
+    _ => fail("strict deletion must raise for a connected node")
+  }
+  assert_graph_state_equal(strict_delete_before, strict_delete.candidate)
+  assert_eq(
+    try! strict_delete.candidate.get_edge(connected_edge),
+    try! strict_delete.candidate.get_edge(connected_edge),
+  )
+  assert_transaction_failed(strict_delete)
+
+  let stale_database = Database::new_in_memory()
+  let stale = try! stale_database.begin_write()
+  let stale_node = try! stale.create_node([], {})
+  let stale_other = try! stale.create_node([], {})
+  let stale_edge = try! stale.create_edge(stale_node, stale_other, "STALE", {})
+  match stale.candidate.outgoing_edge_ids.get(stale_node) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected the source adjacency entry")
+  }
+  let stale_before = stale.candidate.copy_detached()
+  try stale.delete_node_cascade(stale_node) catch {
+    DatabaseError::EdgeNotFound(id) => assert_eq(id, EdgeId(99))
+    _ => fail("stale cascade adjacency must re-raise its graph error")
+  } noraise {
+    _ => fail("stale cascade adjacency must raise")
+  }
+  assert_graph_state_equal(stale_before, stale.candidate)
+  assert_eq(
+    try! stale.candidate.get_edge(stale_edge),
+    try! stale.candidate.get_edge(stale_edge),
+  )
+  assert_transaction_failed(stale)
+}
+
+///|
+test "terminal transaction states release the writer slot" {
+  let database = Database::new_in_memory()
+  let committed = try! database.begin_write()
+  let committed_node = try! committed.create_node(["User"], {
+    "name": PropertyValue::String("Alice"),
+  })
+  try! committed.create_node_property_index("User", "name")
+  try! committed.commit()
+  assert_eq(
+    try! database.state.val.committed.node_ids_by_property_index(
+      "User",
+      "name",
+      PropertyValue::String("Alice"),
+    ),
+    Some([committed_node]),
+  )
+  match committed.status.val {
+    Committed => ()
+    _ => fail("commit must mark the shared transaction status")
+  }
+  match database.state.val.active {
+    None => ()
+    Some(_) => fail("commit must release the database writer slot")
+  }
+
+  let rolled_back = try! database.begin_write()
+  let _ = try! rolled_back.create_node([], {})
+  try! rolled_back.rollback()
+  match rolled_back.status.val {
+    RolledBack => ()
+    _ => fail("rollback must mark the shared transaction status")
+  }
+  match database.state.val.active {
+    None => ()
+    Some(_) => fail("rollback must release the database writer slot")
+  }
+
+  let failed = try! database.begin_write()
+  try failed.get_node(NodeId(99)) catch {
+    DatabaseError::NodeNotFound(id) => assert_eq(id, NodeId(99))
+    _ => fail("missing candidate reads must preserve their graph error")
+  } noraise {
+    _ => fail("missing candidate reads must raise")
+  }
+  match failed.status.val {
+    Failed => ()
+    _ => fail("failed operations must poison the shared status")
+  }
+  try! failed.rollback()
+  match failed.status.val {
+    RolledBack => ()
+    _ => fail("rollback must recover a failed transaction")
+  }
+}
+
+///|
+test "closing a database rolls back its active transaction" {
+  let database = Database::new_in_memory()
+  let transaction = try! database.begin_write()
+  let node = try! transaction.create_node([], {})
+  try! database.close()
+  match transaction.status.val {
+    RolledBack => ()
+    _ => fail("closing must roll back its active transaction")
+  }
+  match database.state.val.active {
+    None => ()
+    Some(_) => fail("closing must clear the active writer slot")
+  }
+  if database.state.val.closed != true {
+    fail("closing must mark the database closed")
+  }
+  try database.get_node(node) catch {
+    DatabaseError::DatabaseClosed => ()
+    _ => fail("closed databases must reject reads")
+  } noraise {
+    _ => fail("closed databases must reject reads")
+  }
+}
+
+///|
+test "database committed reads return detached node and edge values" {
+  let database = Database::new_in_memory()
+  let node_id = try! database.state.val.committed.create_node(["User"], {
+    "name": PropertyValue::String("Alice"),
+  })
+  let other_id = try! database.state.val.committed.create_node([], {})
+  let edge_id = try! database.state.val.committed.create_edge(
+    node_id,
+    other_id,
+    "KNOWS",
+    { "weight": PropertyValue::Int64(1) },
+  )
+  let node = try! database.get_node(node_id)
+  node.labels.push("Mutated")
+  node.properties.set("name", PropertyValue::String("Mallory"))
+  let edge = try! database.get_edge(edge_id)
+  edge.properties.set("weight", PropertyValue::Int64(2))
+  assert_eq(
+    try! database.get_node(node_id),
+    Node::Node(id=node_id, labels=["User"], properties={
+      "name": PropertyValue::String("Alice"),
+    }),
+  )
+  assert_eq(
+    try! database.get_edge(edge_id),
+    Edge::Edge(id=edge_id, from=node_id, to=other_id, edge_type="KNOWS", properties={
+      "weight": PropertyValue::Int64(1),
+    }),
+  )
+}
+
+///|
 test "graph state creates nodes with monotonic ids and isolated values" {
   let graph = GraphState::new()
   let invalid_values = [

@@ -137,6 +137,31 @@ integration for index definitions and contents also remain outstanding, as do
 public APIs/CLI integration. The approved design addendum is
 `docs/superpowers/specs/2026-09-21-property-equality-indexes-design.md`.
 
+## Issue #7 feature branch — in-memory transaction boundary, not merged
+
+The issue-specific branch `codex/7-write-transactions` now contains the
+detached candidate transaction surface in commit `32bbbeb`, followed by the
+commit/rollback lifecycle slice. `Database::begin_write` shares a private
+writer slot and a detached `GraphState`; transaction operations read and mutate
+only that candidate, while graph errors preserve their structured error and
+poison the transaction. `commit` publishes the candidate graph and maintained
+indexes in one shared-state update. `rollback` discards it and releases the
+writer slot; closing an active database rolls it back first.
+
+The branch's native suite passes **34/34**. `moon check --target native`,
+`moon fmt --check`, `moon info --target native`, and `git diff --check` pass on
+the current Task 4 implementation. The generated `.mbti` additions are the
+intentional public transaction methods and `TransactionFailed`; private graph,
+index, database-state, and transaction-state types remain hidden.
+
+This is still an unmerged in-memory slice, not a completed database: no WAL,
+durable persistence, crash recovery, snapshots, query engine, CLI, or process
+lock is implemented here. The local review record found no actionable finding.
+[PR #21](https://github.com/dtzrttp/MoonPropertyDB/pull/21) is open against
+`codex/6-property-equality-indexes`; its head `75c93c5` passed the hosted
+native CI run [35698650205](https://github.com/dtzrttp/MoonPropertyDB/actions/runs/35698650205).
+No merge has been authorized.
+
 ### Windows checkout status note
 
 Git reports CRLF/filter-only worktree status flags for `errors.mbt`,

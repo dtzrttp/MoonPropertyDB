@@ -39,12 +39,18 @@ are not listed as delivered.
   native suite passes 23/23. This remains a partial Issue #6 implementation,
   not a closable issue: public APIs/CLI, Issue #7 rollback atomicity, and
   persistence/snapshot integration remain outstanding.
+- On the unmerged Issue #7 branch, added an in-memory single-writer transaction
+  boundary. Transactions stage graph and index changes on detached candidates,
+  poison themselves after graph errors, commit atomically into committed reads,
+  and roll back without publishing staged state. Closing an active database
+  rolls back its writer. This remains an in-memory transaction slice; WAL,
+  persistence, recovery, snapshots, queries, and CLI behavior are not included.
 
 ### Not included
 
 - The Issue #13 base branch implements private in-memory node/edge state. The
   Issue #12 candidate adds private label/type indexes on top. The Issue #6
   branch adds private node/edge equality-index definitions and lookups, with
-  node and edge lifecycle posting maintenance. Public Database APIs/CLI, Issue
-  #7 rollback atomicity, persistence, recovery, snapshots, and queries remain
+  node and edge lifecycle posting maintenance. Persistent storage, recovery,
+  snapshots, queries, CLI integration, and public index APIs remain
   unimplemented or outstanding.
