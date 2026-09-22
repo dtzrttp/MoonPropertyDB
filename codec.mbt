@@ -72,7 +72,17 @@ fn wal_patch_u64(target : Array[Byte], offset : Int, value : UInt64) -> Unit {
 ///|
 /// Encode one complete version-one WAL record.
 #warnings("-unused_value")
-fn wal_encode(record : WalRecord) -> Bytes {
+fn wal_encode(record : WalRecord) -> Bytes raise DatabaseError {
+  for operation in record.operations.iter() {
+    if !wal_known_operation_tag(operation.tag) {
+      raise DatabaseError::CorruptLogRecord(
+        file="<memory>",
+        offset=0UL,
+        transaction_id=Some(record.transaction_id),
+        reason="unknown WAL operation tag",
+      )
+    }
+  }
   let prefix : Array[Byte] = []
   wal_append_bytes(prefix, b"MPDBWAL\x00")
   wal_append_bytes(prefix, wal_u16_bytes(1UL))
@@ -90,6 +100,14 @@ fn wal_encode(record : WalRecord) -> Bytes {
       operation.payload.length().to_uint64().to_le_bytes(),
     )
     wal_append_bytes(prefix, operation.payload)
+  }
+  if prefix.length() > 2147483643 {
+    raise DatabaseError::CorruptLogRecord(
+      file="<memory>",
+      offset=0UL,
+      transaction_id=Some(record.transaction_id),
+      reason="WAL record is too large",
+    )
   }
   let total_length = (prefix.length() + 4).to_uint64()
   wal_patch_u64(prefix, 12, total_length)
@@ -280,4 +298,80 @@ fn wal_decode(
     )
   }
   Complete(WalRecord::{ transaction_id, operations, }, declared_length_int)
+}
+
+///|
+#warnings("-unused_field")
+priv struct WalScanResult {
+  records : Array[WalRecord]
+  last_transaction_id : UInt64
+}
+
+///|
+fn wal_scan_from(
+  bytes : Bytes,
+  cursor : Int,
+  file : String,
+  offset : UInt64,
+  snapshot_transaction_id : UInt64,
+  records : Array[WalRecord],
+  last_transaction_id : UInt64,
+) -> WalScanResult raise DatabaseError {
+  if cursor >= bytes.length() {
+    { records, last_transaction_id, }
+  } else {
+    let record_offset = offset + cursor.to_uint64()
+    match
+      wal_decode(
+        bytes[cursor:bytes.length()].to_owned(),
+        file~,
+        offset=record_offset,
+      ) {
+      WalDecode::Truncated => { records, last_transaction_id, }
+      WalDecode::Complete(record, consumed) => {
+        let mut next_last_transaction_id = last_transaction_id
+        if record.transaction_id > snapshot_transaction_id {
+          if record.transaction_id != last_transaction_id + 1UL {
+            raise DatabaseError::CorruptLogRecord(
+              file~,
+              offset=record_offset,
+              transaction_id=Some(record.transaction_id),
+              reason="non-sequential WAL transaction ID",
+            )
+          }
+          records.push(record)
+          next_last_transaction_id = record.transaction_id
+        }
+        wal_scan_from(
+          bytes,
+          cursor + consumed,
+          file,
+          offset,
+          snapshot_transaction_id,
+          records,
+          next_last_transaction_id,
+        )
+      }
+    }
+  }
+}
+
+///|
+/// Scan complete sequential WAL records after a snapshot boundary.
+#warnings("-unused_value")
+fn wal_scan(
+  bytes : Bytes,
+  file~ : String,
+  offset~ : UInt64,
+  snapshot_transaction_id~ : UInt64,
+) -> WalScanResult raise DatabaseError {
+  wal_scan_from(
+    bytes,
+    0,
+    file,
+    offset,
+    snapshot_transaction_id,
+    [],
+    snapshot_transaction_id,
+  )
 }

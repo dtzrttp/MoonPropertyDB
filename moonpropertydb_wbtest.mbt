@@ -18,7 +18,7 @@ test "wal record encoding is deterministic" {
       WalOperation::{ tag: 2, payload: b"edge", },
     ],
   }
-  let encoded = wal_encode(record)
+  let encoded = try! wal_encode(record)
   assert_eq(encoded.length(), 62)
   assert_eq(encoded[0:8].to_owned(), b"MPDBWAL\x00")
   assert_eq(encoded[8:10].to_owned(), b"\x01\x00")
@@ -36,7 +36,7 @@ test "wal record encoding is deterministic" {
     encoded[58:62].to_owned(),
     wal_u32_bytes(wal_crc32(encoded[0:58].to_owned())),
   )
-  assert_eq(wal_encode(record), encoded)
+  assert_eq(try! wal_encode(record), encoded)
 }
 
 ///|
@@ -45,7 +45,7 @@ test "wal record decoder distinguishes round trip tail and checksum" {
     transaction_id: 7UL,
     operations: [WalOperation::{ tag: 1, payload: b"node", }],
   }
-  let encoded = wal_encode(record)
+  let encoded = try! wal_encode(record)
   let decoded = try! wal_decode(encoded, file="wal", offset=0UL)
   match decoded {
     WalDecode::Complete(decoded, consumed) => {
@@ -90,7 +90,24 @@ test "wal record decoder rejects invalid framing and unknown operations" {
     transaction_id: 8UL,
     operations: [WalOperation::{ tag: 1, payload: b"node", }],
   }
-  let encoded = wal_encode(record)
+  let encoded = try! wal_encode(record)
+
+  try
+    wal_encode(WalRecord::{
+      transaction_id: 8UL,
+      operations: [WalOperation::{ tag: 0x7F, payload: b"bad", }],
+    })
+  catch {
+    DatabaseError::CorruptLogRecord(
+      file="<memory>",
+      offset=0UL,
+      transaction_id=Some(8UL),
+      reason="unknown WAL operation tag"
+    ) => ()
+    _ => fail("the encoder must reject unknown operation tags")
+  } noraise {
+    _ => fail("the encoder must reject unknown operation tags")
+  }
 
   let bad_magic : Array[Byte] = encoded.to_array()
   bad_magic[0] = b"X".at(0)
@@ -167,6 +184,164 @@ test "wal record decoder rejects invalid framing and unknown operations" {
   } noraise {
     _ => fail("unknown operation tags must raise")
   }
+}
+
+///|
+test "wal scanner keeps sequential records after a snapshot boundary" {
+  let first = try! wal_encode(WalRecord::{
+    transaction_id: 1UL,
+    operations: [WalOperation::{ tag: 1, payload: b"x", }],
+  })
+  let second = try! wal_encode(WalRecord::{
+    transaction_id: 2UL,
+    operations: [WalOperation::{ tag: 1, payload: b"y", }],
+  })
+  let stream = Bytes::add(first, second)
+  let all = try! wal_scan(
+    stream,
+    file="wal",
+    offset=0UL,
+    snapshot_transaction_id=0UL,
+  )
+  assert_eq(all.records.length(), 2)
+  assert_eq(all.records[0].transaction_id, 1UL)
+  assert_eq(all.records[1].transaction_id, 2UL)
+  assert_eq(all.last_transaction_id, 2UL)
+
+  let after_snapshot = try! wal_scan(
+    stream,
+    file="wal",
+    offset=0UL,
+    snapshot_transaction_id=1UL,
+  )
+  assert_eq(after_snapshot.records.length(), 1)
+  assert_eq(after_snapshot.records[0].transaction_id, 2UL)
+  assert_eq(after_snapshot.last_transaction_id, 2UL)
+
+  let truncated_stream = Bytes::add(
+    first,
+    second[0:second.length() - 1].to_owned(),
+  )
+  let tail = try! wal_scan(
+    truncated_stream,
+    file="wal",
+    offset=0UL,
+    snapshot_transaction_id=0UL,
+  )
+  assert_eq(tail.records.length(), 1)
+  assert_eq(tail.records[0].transaction_id, 1UL)
+  assert_eq(tail.last_transaction_id, 1UL)
+}
+
+///|
+test "wal scanner rejects duplicate and gapped transaction ids" {
+  let first = try! wal_encode(WalRecord::{
+    transaction_id: 1UL,
+    operations: [WalOperation::{ tag: 1, payload: b"x", }],
+  })
+  let duplicate = try! wal_encode(WalRecord::{
+    transaction_id: 1UL,
+    operations: [WalOperation::{ tag: 1, payload: b"y", }],
+  })
+  let duplicate_stream = Bytes::add(first, duplicate)
+  try
+    wal_scan(
+      duplicate_stream,
+      file="wal",
+      offset=0UL,
+      snapshot_transaction_id=0UL,
+    )
+  catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=46UL,
+      transaction_id=Some(1UL),
+      reason="non-sequential WAL transaction ID"
+    ) => ()
+    _ => fail("duplicate transaction IDs must be corruption")
+  } noraise {
+    _ => fail("duplicate transaction IDs must raise")
+  }
+
+  let gap = try! wal_encode(WalRecord::{
+    transaction_id: 3UL,
+    operations: [WalOperation::{ tag: 1, payload: b"z", }],
+  })
+  let gap_stream = Bytes::add(first, gap)
+  try
+    wal_scan(gap_stream, file="wal", offset=0UL, snapshot_transaction_id=0UL)
+  catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=46UL,
+      transaction_id=Some(3UL),
+      reason="non-sequential WAL transaction ID"
+    ) => ()
+    _ => fail("gapped transaction IDs must be corruption")
+  } noraise {
+    _ => fail("gapped transaction IDs must raise")
+  }
+}
+
+///|
+test "wal decoder checks malformed operation bounds" {
+  let encoded = try! wal_encode(WalRecord::{
+    transaction_id: 1UL,
+    operations: [WalOperation::{ tag: 1, payload: b"x", }],
+  })
+
+  let too_many : Array[Byte] = encoded.to_array()
+  too_many[28] = b"\x02".at(0)
+  try wal_decode(Bytes::from_array(too_many), file="wal", offset=0UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=0UL,
+      transaction_id=Some(1UL),
+      reason="WAL operation count exceeds record length"
+    ) => ()
+    _ => fail("an excessive operation count must be corruption")
+  } noraise {
+    _ => fail("an excessive operation count must raise")
+  }
+
+  let oversized_payload : Array[Byte] = encoded.to_array()
+  oversized_payload[33] = b"\x64".at(0)
+  try
+    wal_decode(Bytes::from_array(oversized_payload), file="wal", offset=0UL)
+  catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=32UL,
+      transaction_id=Some(1UL),
+      reason="operation payload exceeds WAL record"
+    ) => ()
+    _ => fail("an oversized operation payload must be corruption")
+  } noraise {
+    _ => fail("an oversized operation payload must raise")
+  }
+
+  let payload_gap : Array[Byte] = encoded.to_array()
+  payload_gap[33] = b"\x00".at(0)
+  try wal_decode(Bytes::from_array(payload_gap), file="wal", offset=0UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=41UL,
+      transaction_id=Some(1UL),
+      reason="WAL operation payloads do not fill record"
+    ) => ()
+    _ => fail("unused operation payload bytes must be corruption")
+  } noraise {
+    _ => fail("unused operation payload bytes must raise")
+  }
+
+  let truncated_header = try! wal_scan(
+    b"\x01",
+    file="wal",
+    offset=0UL,
+    snapshot_transaction_id=0UL,
+  )
+  assert_eq(truncated_header.records.length(), 0)
+  assert_eq(truncated_header.last_transaction_id, 0UL)
 }
 
 ///|

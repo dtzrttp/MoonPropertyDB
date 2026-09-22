@@ -22,7 +22,10 @@ features are explicitly marked as planned.
 - A private WAL v1 record codec with deterministic little-endian framing,
   explicit operation payload lengths, CRC32/ISO-HDLC validation, and structured
   distinction between truncated tails and corrupt records.
-- Public and white-box tests; the current Issue #7 branch contains 38 passing
+- A private WAL stream scanner that skips records covered by a snapshot
+  boundary, enforces sequential transaction IDs, and distinguishes final tails
+  from middle corruption.
+- Public and white-box tests; the current Issue #8 branch contains 41 passing
   native tests.
 - A runnable local in-memory example under `examples/in_memory_graph`.
 - Native CI checks for check, build, test, formatting, and generated interface.
