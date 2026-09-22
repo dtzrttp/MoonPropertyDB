@@ -50,6 +50,7 @@ their code and integration tests land.
 ## Repository tracking note
 
 The code history was reconstructed into the formal public repository without
-changing its final tree or commit messages. GitHub Issues, PRs, and milestones
-must be recreated or linked separately if the project requires remote tracking;
-this local document intentionally does not invent remote issue numbers.
+changing its final tree or commit messages. The formal repository now has the
+`v0.1` milestone and Issues #1 through #15 for the approved work breakdown.
+Historical PRs are not fabricated: future pull requests must represent real
+branch changes and include implementation evidence, tests, and limitations.
