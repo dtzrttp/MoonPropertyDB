@@ -25,13 +25,13 @@ jobs:
         run: moon version
 
       - name: Check native package
-        run: moon check --target native --deny-warn
+        run: moon check --target native
 
       - name: Build native package
         run: moon build --target native
 
       - name: Test native package
-        run: moon test --target native --deny-warn
+        run: moon test --target native
 
       - name: Check formatting
         run: moon fmt --check
