@@ -5,9 +5,10 @@ statement is not evidence that a feature is implemented.
 
 ## Current snapshot
 
-The current `main` history contains 53 real development commits from
-2026-09-20 through 2026-09-22. The active implementation is a tested,
-in-memory graph foundation:
+The preserved baseline contains 53 real development commits from 2026-09-20
+through 2026-09-22. The formal `main` branch now also contains the reviewed
+submission-readiness PR. The active Issue #7 branch is a tested in-memory graph
+foundation plus a private WAL record codec:
 
 - typed IDs and scalar property values;
 - structured error categories;
@@ -16,7 +17,9 @@ in-memory graph foundation:
 - strict/cascade node deletion;
 - detached-candidate single-writer transactions;
 - atomic commit publication and rollback;
-- 34 native tests and a runnable in-memory example.
+- versioned WAL v1 framing, deterministic encoding, CRC32/ISO-HDLC checks, and
+  corruption/truncation classification;
+- 38 native tests and a runnable in-memory example.
 
 All current commit author and committer metadata belongs to `dtzrttp`.
 
@@ -26,8 +29,8 @@ The current toolchain is Moon `0.1.20260915` / `moonc` `0.10.13+cbb11c36f`.
 The following commands pass locally on the native target:
 
 ```text
-moon check --deny-warn
-moon test --deny-warn       # 34 passed
+moon check --target native
+moon test --target native   # 38 passed
 moon build --target native
 moon fmt --check
 moon info --target native
@@ -35,17 +38,18 @@ git diff --check
 ```
 
 The public interface is reviewed through the generated `pkg.generated.mbti`.
-`moon ide doc` remains unavailable in this environment because the toolchain
-reports missing backend metadata; compiler, generated-interface, and test
-evidence are used instead.
+The installed toolchain's `moon ide doc` verified the exact `Bytes`, `BytesView`,
+`Byte`, `UInt64`, `Array::append`, `Array::set`, and `Array::iter2` APIs used by
+the codec. The codec record and decode-result types remain private.
 
 ## Planned v0.1 work
 
-Persistent database paths, WAL/commit-log encoding, corruption detection,
+Persistent database paths, WAL append/synchronization, operation replay,
 recovery, snapshots/checkpoints, cross-process writer locking, the bounded
-query pipeline, the full CLI, JSONL import/export, and the dependency-graph
-example are not implemented. They must not be described as delivered until
-their code and integration tests land.
+query pipeline, the full CLI, JSONL import/export, and the complete
+dependency-graph demo are not implemented. The current WAL work is only the
+tested in-memory record codec; these capabilities must not be described as
+delivered until their code and integration tests land.
 
 ## Repository tracking note
 

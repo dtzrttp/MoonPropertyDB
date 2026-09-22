@@ -19,8 +19,11 @@ features are explicitly marked as planned.
 - A single-writer in-memory transaction boundary with detached candidates,
   atomic commit publication, rollback, terminal states, and failed-transaction
   poisoning.
-- Public and white-box tests; the current native suite contains 34 passing
-  tests.
+- A private WAL v1 record codec with deterministic little-endian framing,
+  explicit operation payload lengths, CRC32/ISO-HDLC validation, and structured
+  distinction between truncated tails and corrupt records.
+- Public and white-box tests; the current Issue #7 branch contains 38 passing
+  native tests.
 - A runnable local in-memory example under `examples/in_memory_graph`.
 - Native CI checks for check, build, test, formatting, and generated interface.
 - Architecture, query, file-format, recovery, benchmark, source, security,
@@ -28,8 +31,8 @@ features are explicitly marked as planned.
 
 ### Planned and not yet implemented
 
-- Persistent open/close storage, append-only commit logs, checksums, crash
-  recovery, snapshots, checkpoints, and process locking.
+- Persistent open/close storage, WAL append and synchronization, operation
+  replay, crash recovery, snapshots, checkpoints, and process locking.
 - Query lexer/parser/planner/executor and the `moonpropertydb query` CLI.
 - Full CLI commands, JSONL import/export, and the dependency-graph demo.
 - Mooncakes publication and Gitlink synchronization.

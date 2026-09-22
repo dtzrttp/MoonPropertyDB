@@ -3,6 +3,173 @@
 // Keep them focused; public behavior belongs in `_test.mbt`.
 
 ///|
+test "wal codec uses crc32 iso hdlc and little endian fields" {
+  assert_eq(wal_crc32(b"123456789"), 3421780262UL)
+  assert_eq(wal_u16_bytes(0x1234UL), b"\x34\x12")
+  assert_eq(wal_u32_bytes(0x78563412UL), b"\x12\x34\x56\x78")
+}
+
+///|
+test "wal record encoding is deterministic" {
+  let record = WalRecord::{
+    transaction_id: 7UL,
+    operations: [
+      WalOperation::{ tag: 1, payload: b"node", },
+      WalOperation::{ tag: 2, payload: b"edge", },
+    ],
+  }
+  let encoded = wal_encode(record)
+  assert_eq(encoded.length(), 62)
+  assert_eq(encoded[0:8].to_owned(), b"MPDBWAL\x00")
+  assert_eq(encoded[8:10].to_owned(), b"\x01\x00")
+  assert_eq(encoded[10:12].to_owned(), b"\x00\x00")
+  assert_eq(encoded[12:20].to_owned(), 62UL.to_le_bytes())
+  assert_eq(encoded[20:28].to_owned(), 7UL.to_le_bytes())
+  assert_eq(encoded[28:32].to_owned(), wal_u32_bytes(2UL))
+  assert_eq(encoded[32:33].to_owned(), b"\x01")
+  assert_eq(encoded[33:41].to_owned(), 4UL.to_le_bytes())
+  assert_eq(encoded[41:45].to_owned(), b"node")
+  assert_eq(encoded[45:46].to_owned(), b"\x02")
+  assert_eq(encoded[46:54].to_owned(), 4UL.to_le_bytes())
+  assert_eq(encoded[54:58].to_owned(), b"edge")
+  assert_eq(
+    encoded[58:62].to_owned(),
+    wal_u32_bytes(wal_crc32(encoded[0:58].to_owned())),
+  )
+  assert_eq(wal_encode(record), encoded)
+}
+
+///|
+test "wal record decoder distinguishes round trip tail and checksum" {
+  let record = WalRecord::{
+    transaction_id: 7UL,
+    operations: [WalOperation::{ tag: 1, payload: b"node", }],
+  }
+  let encoded = wal_encode(record)
+  let decoded = try! wal_decode(encoded, file="wal", offset=0UL)
+  match decoded {
+    WalDecode::Complete(decoded, consumed) => {
+      assert_eq(consumed, encoded.length())
+      assert_eq(decoded.transaction_id, 7UL)
+      assert_eq(decoded.operations.length(), 1)
+      assert_eq(decoded.operations[0].tag, 1)
+      assert_eq(decoded.operations[0].payload, b"node")
+    }
+    WalDecode::Truncated => fail("a complete WAL record must not be truncated")
+  }
+
+  let tail = try! wal_decode(
+    encoded[0:encoded.length() - 1].to_owned(),
+    file="wal",
+    offset=9UL,
+  )
+  match tail {
+    WalDecode::Truncated => ()
+    WalDecode::Complete(_, _) => fail("a short WAL tail must be truncated")
+  }
+
+  let corrupted : Array[Byte] = encoded.to_array()
+  corrupted[encoded.length() - 1] = corrupted[encoded.length() - 1].lxor(
+    b"\x01".at(0),
+  )
+  try wal_decode(Bytes::from_array(corrupted), file="wal", offset=11UL) catch {
+    DatabaseError::LogChecksumFailed(
+      file="wal",
+      offset=11UL,
+      transaction_id=Some(7UL)
+    ) => ()
+    _ => fail("a checksum mismatch must be classified as a checksum failure")
+  } noraise {
+    _ => fail("a checksum mismatch must raise")
+  }
+}
+
+///|
+test "wal record decoder rejects invalid framing and unknown operations" {
+  let record = WalRecord::{
+    transaction_id: 8UL,
+    operations: [WalOperation::{ tag: 1, payload: b"node", }],
+  }
+  let encoded = wal_encode(record)
+
+  let bad_magic : Array[Byte] = encoded.to_array()
+  bad_magic[0] = b"X".at(0)
+  try wal_decode(Bytes::from_array(bad_magic), file="wal", offset=3UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=3UL,
+      transaction_id=None,
+      reason="invalid WAL magic"
+    ) => ()
+    _ => fail("bad magic must be corruption")
+  } noraise {
+    _ => fail("bad magic must raise")
+  }
+
+  let bad_version : Array[Byte] = encoded.to_array()
+  bad_version[8] = b"\x02".at(0)
+  try wal_decode(Bytes::from_array(bad_version), file="wal", offset=4UL) catch {
+    DatabaseError::IncompatibleDatabaseFormat(version~) =>
+      assert_eq(version, 2U.to_uint16())
+    _ => fail("unsupported WAL versions must be rejected")
+  } noraise {
+    _ => fail("unsupported WAL versions must raise")
+  }
+
+  let bad_flags : Array[Byte] = encoded.to_array()
+  bad_flags[10] = b"\x01".at(0)
+  try wal_decode(Bytes::from_array(bad_flags), file="wal", offset=6UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=6UL,
+      transaction_id=None,
+      reason="WAL flags are not zero"
+    ) => ()
+    _ => fail("nonzero WAL flags must be corruption")
+  } noraise {
+    _ => fail("nonzero WAL flags must raise")
+  }
+
+  let bad_length : Array[Byte] = encoded.to_array()
+  bad_length[12] = b"\x23".at(0)
+  try wal_decode(Bytes::from_array(bad_length), file="wal", offset=7UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=7UL,
+      transaction_id=None,
+      reason="WAL record length is too short"
+    ) => ()
+    _ => fail("a short declared WAL length must be corruption")
+  } noraise {
+    _ => fail("a short declared WAL length must raise")
+  }
+
+  let with_next_record = Bytes::add(encoded, b"next")
+  let consumed = try! wal_decode(with_next_record, file="wal", offset=8UL)
+  match consumed {
+    WalDecode::Complete(_, length) => assert_eq(length, encoded.length())
+    WalDecode::Truncated =>
+      fail("a complete frame with trailing data must decode")
+  }
+
+  let unknown_operation : Array[Byte] = encoded.to_array()
+  unknown_operation[32] = b"\x7F".at(0)
+  try
+    wal_decode(Bytes::from_array(unknown_operation), file="wal", offset=5UL)
+  catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=37UL,
+      transaction_id=Some(8UL),
+      reason="unknown WAL operation tag"
+    ) => ()
+    _ => fail("unknown operation tags must be rejected")
+  } noraise {
+    _ => fail("unknown operation tags must raise")
+  }
+}
+
+///|
 test "graph candidate copy detaches graph and every index collection" {
   let original = GraphState::new()
   let first = try! original.create_node(["User"], {
