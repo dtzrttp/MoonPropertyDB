@@ -10,6 +10,36 @@ test "wal codec uses crc32 iso hdlc and little endian fields" {
 }
 
 ///|
+test "wal record encoding is deterministic" {
+  let record = WalRecord::{
+    transaction_id: 7UL,
+    operations: [
+      WalOperation::{ tag: 1, payload: b"node", },
+      WalOperation::{ tag: 2, payload: b"edge", },
+    ],
+  }
+  let encoded = wal_encode(record)
+  assert_eq(encoded.length(), 62)
+  assert_eq(encoded[0:8].to_owned(), b"MPDBWAL\x00")
+  assert_eq(encoded[8:10].to_owned(), b"\x01\x00")
+  assert_eq(encoded[10:12].to_owned(), b"\x00\x00")
+  assert_eq(encoded[12:20].to_owned(), 62UL.to_le_bytes())
+  assert_eq(encoded[20:28].to_owned(), 7UL.to_le_bytes())
+  assert_eq(encoded[28:32].to_owned(), wal_u32_bytes(2UL))
+  assert_eq(encoded[32:33].to_owned(), b"\x01")
+  assert_eq(encoded[33:41].to_owned(), 4UL.to_le_bytes())
+  assert_eq(encoded[41:45].to_owned(), b"node")
+  assert_eq(encoded[45:46].to_owned(), b"\x02")
+  assert_eq(encoded[46:54].to_owned(), 4UL.to_le_bytes())
+  assert_eq(encoded[54:58].to_owned(), b"edge")
+  assert_eq(
+    encoded[58:62].to_owned(),
+    wal_u32_bytes(wal_crc32(encoded[0:58].to_owned())),
+  )
+  assert_eq(wal_encode(record), encoded)
+}
+
+///|
 test "graph candidate copy detaches graph and every index collection" {
   let original = GraphState::new()
   let first = try! original.create_node(["User"], {
