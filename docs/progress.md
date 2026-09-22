@@ -156,8 +156,11 @@ index, database-state, and transaction-state types remain hidden.
 
 This is still an unmerged in-memory slice, not a completed database: no WAL,
 durable persistence, crash recovery, snapshots, query engine, CLI, or process
-lock is implemented here. Independent review and the Issue #7 PR remain
-pending; no merge has been authorized.
+lock is implemented here. The local review record found no actionable finding.
+[PR #21](https://github.com/dtzrttp/MoonPropertyDB/pull/21) is open against
+`codex/6-property-equality-indexes`; its head `75c93c5` passed the hosted
+native CI run [35698650205](https://github.com/dtzrttp/MoonPropertyDB/actions/runs/35698650205).
+No merge has been authorized.
 
 ### Windows checkout status note
 
