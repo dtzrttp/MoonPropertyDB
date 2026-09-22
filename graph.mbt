@@ -51,6 +51,93 @@ fn GraphState::new() -> GraphState {
 }
 
 ///|
+#warnings("-unused_value")
+fn GraphState::copy_detached(self : GraphState) -> GraphState {
+  let nodes : Map[NodeId, Node] = Map([])
+  for id, node in self.nodes {
+    nodes.set(
+      id,
+      Node::Node(
+        id=node.id,
+        labels=node.labels.copy(),
+        properties=node.properties.copy(),
+      ),
+    )
+  }
+
+  let edges : Map[EdgeId, Edge] = Map([])
+  for id, edge in self.edges {
+    edges.set(
+      id,
+      Edge::Edge(
+        id=edge.id,
+        from=edge.from,
+        to=edge.to,
+        edge_type=edge.edge_type,
+        properties=edge.properties.copy(),
+      ),
+    )
+  }
+
+  let node_ids_by_label : Map[String, Array[NodeId]] = Map([])
+  for label, ids in self.node_ids_by_label {
+    node_ids_by_label.set(label, ids.copy())
+  }
+
+  let node_property_indexes : Map[
+    NodePropertyIndex,
+    Map[PropertyValue, Array[NodeId]],
+  ] = Map([])
+  for definition, values in self.node_property_indexes {
+    let copied_values : Map[PropertyValue, Array[NodeId]] = Map([])
+    for value, ids in values {
+      copied_values.set(value, ids.copy())
+    }
+    node_property_indexes.set(definition, copied_values)
+  }
+
+  let edge_ids_by_type : Map[String, Array[EdgeId]] = Map([])
+  for edge_type, ids in self.edge_ids_by_type {
+    edge_ids_by_type.set(edge_type, ids.copy())
+  }
+
+  let edge_property_indexes : Map[
+    EdgePropertyIndex,
+    Map[PropertyValue, Array[EdgeId]],
+  ] = Map([])
+  for definition, values in self.edge_property_indexes {
+    let copied_values : Map[PropertyValue, Array[EdgeId]] = Map([])
+    for value, ids in values {
+      copied_values.set(value, ids.copy())
+    }
+    edge_property_indexes.set(definition, copied_values)
+  }
+
+  let outgoing_edge_ids : Map[NodeId, Array[EdgeId]] = Map([])
+  for node_id, edge_ids in self.outgoing_edge_ids {
+    outgoing_edge_ids.set(node_id, edge_ids.copy())
+  }
+
+  let incoming_edge_ids : Map[NodeId, Array[EdgeId]] = Map([])
+  for node_id, edge_ids in self.incoming_edge_ids {
+    incoming_edge_ids.set(node_id, edge_ids.copy())
+  }
+
+  {
+    nodes,
+    edges,
+    node_ids_by_label,
+    node_property_indexes,
+    edge_ids_by_type,
+    edge_property_indexes,
+    outgoing_edge_ids,
+    incoming_edge_ids,
+    next_node_id: self.next_node_id,
+    next_edge_id: self.next_edge_id,
+  }
+}
+
+///|
 fn NodePropertyIndex::new(
   label : String,
   property : String,

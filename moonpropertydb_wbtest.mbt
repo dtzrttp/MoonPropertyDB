@@ -3,6 +3,103 @@
 // Keep them focused; public behavior belongs in `_test.mbt`.
 
 ///|
+test "graph candidate copy detaches graph and every index collection" {
+  let original = GraphState::new()
+  let first = try! original.create_node(["User"], {
+    "name": PropertyValue::String("A"),
+  })
+  let second = try! original.create_node(["User"], {
+    "name": PropertyValue::String("B"),
+  })
+  let edge = try! original.create_edge(first, second, "KNOWS", {
+    "weight": PropertyValue::Int64(1),
+  })
+  try! original.create_node_property_index("User", "name")
+  try! original.create_edge_property_index("KNOWS", "weight")
+  let copy = original.copy_detached()
+  match copy.nodes.get(first) {
+    Some(node) => {
+      node.labels.push("Changed")
+      node.properties.set("name", PropertyValue::String("copy"))
+    }
+    None => fail("expected copied node")
+  }
+  match copy.edges.get(edge) {
+    Some(copied_edge) =>
+      copied_edge.properties.set("weight", PropertyValue::Int64(2))
+    None => fail("expected copied edge")
+  }
+  match copy.node_ids_by_label.get("User") {
+    Some(ids) => ids.push(NodeId(99))
+    None => fail("expected copied label posting")
+  }
+  match copy.edge_ids_by_type.get("KNOWS") {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected copied type posting")
+  }
+  match copy.node_property_indexes.get(NodePropertyIndex::new("User", "name")) {
+    Some(values) =>
+      match values.get(PropertyValue::String("A")) {
+        Some(ids) => ids.push(NodeId(99))
+        None => fail("expected copied node property bucket")
+      }
+    None => fail("expected copied node property index")
+  }
+  match
+    copy.edge_property_indexes.get(EdgePropertyIndex::new("KNOWS", "weight")) {
+    Some(values) =>
+      match values.get(PropertyValue::Int64(1)) {
+        Some(ids) => ids.push(EdgeId(99))
+        None => fail("expected copied edge property bucket")
+      }
+    None => fail("expected copied edge property index")
+  }
+  match copy.outgoing_edge_ids.get(first) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected copied outgoing adjacency")
+  }
+  match copy.incoming_edge_ids.get(second) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected copied incoming adjacency")
+  }
+  copy.set_node_property(first, "name", PropertyValue::String("changed"))
+  copy.delete_edge(edge)
+  assert_eq(
+    (try! original.get_node(first)).properties.get("name"),
+    Some(PropertyValue::String("A")),
+  )
+  assert_eq((try! original.get_node(first)).labels, ["User"])
+  assert_eq(
+    try! original.get_edge(edge),
+    Edge::Edge(id=edge, from=first, to=second, edge_type="KNOWS", properties={
+      "weight": PropertyValue::Int64(1),
+    }),
+  )
+  assert_eq((try! original.outgoing_edges(first)).length(), 1)
+  assert_eq((try! original.incoming_edges(second)).length(), 1)
+  assert_eq(original.node_ids_with_label("User"), [first, second])
+  assert_eq(original.edge_ids_with_type("KNOWS"), [edge])
+  assert_eq(
+    try! original.node_ids_by_property_index(
+      "User",
+      "name",
+      PropertyValue::String("A"),
+    ),
+    Some([first]),
+  )
+  assert_eq(
+    try! original.edge_ids_by_property_index(
+      "KNOWS",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([edge]),
+  )
+  assert_eq(try! original.create_node([], {}), NodeId(3))
+  assert_eq(try! original.create_edge(first, second, "KNOWS", {}), EdgeId(2))
+}
+
+///|
 test "graph state creates nodes with monotonic ids and isolated values" {
   let graph = GraphState::new()
   let invalid_values = [
