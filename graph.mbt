@@ -228,6 +228,68 @@ fn add_edge_property_index_value(
 }
 
 ///|
+fn remove_edge_property_index_value(
+  values : Map[PropertyValue, Array[EdgeId]],
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  match values.get(value) {
+    Some(ids) => {
+      let remaining : Array[EdgeId] = []
+      for existing_id in ids.iter() {
+        if existing_id != edge_id {
+          remaining.push(existing_id)
+        }
+      }
+      if remaining.length() == 0 {
+        values.remove(value)
+      } else {
+        values.set(value, remaining)
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::add_edge_property_posting(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      add_edge_property_index_value(values, value, edge_id)
+      self.edge_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
+fn GraphState::remove_edge_property_posting(
+  self : GraphState,
+  edge_type : String,
+  property : String,
+  value : PropertyValue,
+  edge_id : EdgeId,
+) -> Unit {
+  let definition = EdgePropertyIndex::new(edge_type, property)
+  match self.edge_property_indexes.get(definition) {
+    Some(current) => {
+      let values = current.copy()
+      remove_edge_property_index_value(values, value, edge_id)
+      self.edge_property_indexes.set(definition, values)
+    }
+    None => ()
+  }
+}
+
+///|
 /// Build an edge-property equality index over current graph contents.
 #warnings("-unused_value")
 fn GraphState::create_edge_property_index(
@@ -658,6 +720,9 @@ fn GraphState::create_edge(
   incoming.push(edge_id)
   self.incoming_edge_ids.set(to, incoming)
   self.add_edge_type_index_entry(edge_type, edge_id)
+  for property, value in owned_properties {
+    self.add_edge_property_posting(edge_type, property, value, edge_id)
+  }
   edge_id
 }
 
@@ -753,6 +818,9 @@ fn GraphState::delete_edge(
   id : EdgeId,
 ) -> Unit raise DatabaseError {
   let edge = self.require_edge(id)
+  for property_key, value in edge.properties {
+    self.remove_edge_property_posting(edge.edge_type, property_key, value, id)
+  }
   self.remove_edge_type_index_entry(edge.edge_type, id)
   remove_edge_from_index(self.outgoing_edge_ids, edge.from, id)
   remove_edge_from_index(self.incoming_edge_ids, edge.to, id)
@@ -771,6 +839,12 @@ fn GraphState::set_edge_property(
   let edge = self.require_edge(id)
   let normalized = normalize_property_value(key, value)
   let properties = edge.properties.copy()
+  match edge.properties.get(key) {
+    Some(old_value) =>
+      self.remove_edge_property_posting(edge.edge_type, key, old_value, id)
+    None => ()
+  }
+  self.add_edge_property_posting(edge.edge_type, key, normalized, id)
   properties.set(key, normalized)
   self.edges.set(
     id,
@@ -794,6 +868,11 @@ fn GraphState::remove_edge_property(
 ) -> Unit raise DatabaseError {
   let edge = self.require_edge(id)
   let properties = edge.properties.copy()
+  match edge.properties.get(key) {
+    Some(value) =>
+      self.remove_edge_property_posting(edge.edge_type, key, value, id)
+    None => ()
+  }
   properties.remove(key)
   self.edges.set(
     id,

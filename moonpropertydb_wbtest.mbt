@@ -1381,3 +1381,241 @@ test "property indexes preserve typed scalar equality" {
     Some([bool_edge]),
   )
 }
+
+///|
+test "edge property postings match scans across edge lifecycle and cascade" {
+  let graph = GraphState::new()
+  let left = try! graph.create_node([], {})
+  let center = try! graph.create_node([], {})
+  let right = try! graph.create_node([], {})
+  try! graph.create_edge_property_index("IN", "weight")
+  try! graph.create_edge_property_index("OUT", "weight")
+  try! graph.create_edge_property_index("LOOP", "weight")
+  try! graph.create_edge_property_index("KEEP", "weight")
+
+  let incoming = try! graph.create_edge(left, center, "IN", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let parallel = try! graph.create_edge(left, center, "IN", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let outgoing = try! graph.create_edge(center, right, "OUT", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let self_loop = try! graph.create_edge(center, center, "LOOP", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let keep = try! graph.create_edge(left, right, "KEEP", {
+    "weight": PropertyValue::Int64(1),
+  })
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+
+  graph.set_edge_property(incoming, "weight", PropertyValue::Int64(2)) catch {
+    _ => fail("replacing indexed edge property failed")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(2),
+  )
+  graph.remove_edge_property(incoming, "weight") catch {
+    _ => fail("removing indexed edge property failed")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  graph.remove_edge_property(incoming, "weight") catch {
+    _ => fail("repeating removal of an absent property should be idempotent")
+  }
+  graph.set_edge_property(incoming, "weight", PropertyValue::Int64(1)) catch {
+    _ => fail("reinserting indexed edge property failed")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  graph.delete_edge(incoming) catch {
+    _ => fail("deleting indexed edge failed")
+  }
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "IN",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([parallel]),
+  )
+
+  try graph.delete_node(center) catch {
+    DatabaseError::NodeHasIncidentEdges(missing) => assert_eq(missing, center)
+    _ => fail("strict delete should reject incident indexed edges")
+  } noraise {
+    _ => fail("strict delete should reject incident indexed edges")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "IN",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  graph.delete_node_cascade(center) catch {
+    _ => fail("cascade delete failed")
+  }
+  for edge_type in ["IN", "OUT", "LOOP"] {
+    assert_edge_property_index_matches_scan(
+      graph,
+      edge_type,
+      "weight",
+      PropertyValue::Int64(1),
+    )
+  }
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "KEEP",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([keep]),
+  )
+  for edge_id in [parallel, outgoing, self_loop] {
+    try graph.get_edge(edge_id) catch {
+      DatabaseError::EdgeNotFound(missing) => assert_eq(missing, edge_id)
+      _ => fail("cascade should delete every incident edge")
+    } noraise {
+      _ => fail("cascade should delete every incident edge")
+    }
+  }
+}
+
+///|
+test "failed graph mutations preserve property index state" {
+  let graph = GraphState::new()
+  let from = try! graph.create_node([], {})
+  let to = try! graph.create_node([], {})
+  try! graph.create_edge_property_index("LINK", "weight")
+  try
+    graph.create_edge(NodeId(99), to, "LINK", {
+      "weight": PropertyValue::Int64(1),
+    })
+  catch {
+    DatabaseError::EndpointNodeNotFound(missing) =>
+      assert_eq(missing, NodeId(99))
+    _ => fail("missing endpoint should be rejected")
+  } noraise {
+    _ => fail("missing endpoint should be rejected")
+  }
+  try
+    graph.create_edge(from, to, "LINK", {
+      "weight": PropertyValue::Float64(@double.infinity),
+    })
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("non-finite edge property should be rejected")
+  } noraise {
+    _ => fail("non-finite edge property should be rejected")
+  }
+  try graph.create_edge_property_index("LINK", "weight") catch {
+    DatabaseError::IndexAlreadyExists(..) => ()
+    _ => fail("duplicate edge index should be rejected")
+  } noraise {
+    _ => fail("duplicate edge index should be rejected")
+  }
+  let edge = try! graph.create_edge(from, to, "LINK", {
+    "weight": PropertyValue::Int64(1),
+  })
+  assert_eq(edge, EdgeId(1))
+  try
+    graph.set_edge_property(
+      edge,
+      "weight",
+      PropertyValue::Float64(@double.infinity),
+    )
+  catch {
+    DatabaseError::InvalidPropertyValue(..) => ()
+    _ => fail("invalid edge property update should be rejected")
+  } noraise {
+    _ => fail("invalid edge property update should be rejected")
+  }
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([edge]),
+  )
+  try graph.delete_edge(EdgeId(99)) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("missing edge deletion should be rejected")
+  } noraise {
+    _ => fail("missing edge deletion should be rejected")
+  }
+  assert_edge_property_index_matches_scan(
+    graph,
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+
+  let cascade_graph = GraphState::new()
+  let left = try! cascade_graph.create_node([], {})
+  let center = try! cascade_graph.create_node(["Center"], {
+    "rank": PropertyValue::Int64(1),
+  })
+  let right = try! cascade_graph.create_node([], {})
+  try! cascade_graph.create_node_property_index("Center", "rank")
+  try! cascade_graph.create_edge_property_index("LINK", "weight")
+  let incoming = try! cascade_graph.create_edge(left, center, "LINK", {
+    "weight": PropertyValue::Int64(1),
+  })
+  let outgoing = try! cascade_graph.create_edge(center, right, "LINK", {
+    "weight": PropertyValue::Int64(2),
+  })
+  match cascade_graph.outgoing_edge_ids.get(center) {
+    Some(ids) => ids.push(EdgeId(99))
+    None => fail("expected outgoing adjacency entry")
+  }
+  try cascade_graph.delete_node_cascade(center) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("stale adjacency should be rejected before cascade mutation")
+  } noraise {
+    _ => fail("stale adjacency should be rejected before cascade mutation")
+  }
+  assert_node_property_index_matches_scan(
+    cascade_graph,
+    "Center",
+    "rank",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    cascade_graph,
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  assert_edge_property_index_matches_scan(
+    cascade_graph,
+    "LINK",
+    "weight",
+    PropertyValue::Int64(2),
+  )
+  assert_eq(try! cascade_graph.get_edge(incoming).id, incoming)
+  assert_eq(try! cascade_graph.get_edge(outgoing).id, outgoing)
+}
