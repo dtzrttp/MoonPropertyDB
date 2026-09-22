@@ -7,8 +7,8 @@ statement is not evidence that a feature is implemented.
 
 The preserved baseline contains 53 real development commits from 2026-09-20
 through 2026-09-22. The formal `main` branch now also contains the reviewed
-submission-readiness PR. The active Issue #7 branch is a tested in-memory graph
-foundation plus a private WAL record codec:
+submission-readiness PR. The active Issue #8 branch is a tested in-memory graph
+foundation plus private WAL codec and stream-scanning primitives:
 
 - typed IDs and scalar property values;
 - structured error categories;
@@ -19,7 +19,9 @@ foundation plus a private WAL record codec:
 - atomic commit publication and rollback;
 - versioned WAL v1 framing, deterministic encoding, CRC32/ISO-HDLC checks, and
   corruption/truncation classification;
-- 38 native tests and a runnable in-memory example.
+- sequential WAL scanning after a snapshot boundary, including duplicate/gap
+  detection and final-tail handling;
+- 41 native tests and a runnable in-memory example.
 
 All current commit author and committer metadata belongs to `dtzrttp`.
 
@@ -30,7 +32,7 @@ The following commands pass locally on the native target:
 
 ```text
 moon check --target native
-moon test --target native   # 38 passed
+moon test --target native   # 41 passed
 moon build --target native
 moon fmt --check
 moon info --target native
@@ -44,12 +46,12 @@ the codec. The codec record and decode-result types remain private.
 
 ## Planned v0.1 work
 
-Persistent database paths, WAL append/synchronization, operation replay,
-recovery, snapshots/checkpoints, cross-process writer locking, the bounded
-query pipeline, the full CLI, JSONL import/export, and the complete
+Persistent database paths, WAL append/synchronization, graph operation replay,
+database reopen/recovery, snapshots/checkpoints, cross-process writer locking,
+the bounded query pipeline, the full CLI, JSONL import/export, and the complete
 dependency-graph demo are not implemented. The current WAL work is only the
-tested in-memory record codec; these capabilities must not be described as
-delivered until their code and integration tests land.
+tested in-memory codec and scanner; these capabilities must not be described
+as delivered until their code and integration tests land.
 
 ## Repository tracking note
 
