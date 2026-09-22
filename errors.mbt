@@ -62,6 +62,7 @@ pub(all) suberror DatabaseError {
     reason~ : String
   )
   IoError(file~ : String, operation~ : String, reason~ : String)
+  TransactionFailed
   TransactionAlreadyCommitted
   TransactionAlreadyRolledBack
   CommitOutcomeUnknown

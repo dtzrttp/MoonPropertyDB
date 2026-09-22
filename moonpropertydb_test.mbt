@@ -263,3 +263,127 @@ test "closed database rejects reads, writers, and repeated close" {
     _ => fail("closing a closed database must return a structured error")
   }
 }
+
+///|
+test "failed write poisons transaction without partial candidate mutation" {
+  let database = @moonpropertydb.Database::new_in_memory()
+  let transaction = try! database.begin_write()
+  let node = try! transaction.create_node(["User"], {
+    "age": @moonpropertydb.PropertyValue::Int64(1),
+  })
+  try
+    transaction.set_node_property(
+      node,
+      "age",
+      @moonpropertydb.PropertyValue::Float64(@double.not_a_number),
+    )
+  catch {
+    @moonpropertydb.DatabaseError::InvalidPropertyValue(
+      property="age",
+      reason="Float64 properties must be finite"
+    ) => ()
+    _ => fail("invalid property must preserve its structured error")
+  } noraise {
+    _ => fail("invalid property must raise")
+  }
+  try transaction.get_node(node) catch {
+    @moonpropertydb.DatabaseError::TransactionFailed => ()
+    _ => fail("failed transactions must reject reads after the failure")
+  } noraise {
+    _ => fail("failed transactions must reject reads after the failure")
+  }
+  try transaction.create_node([], {}) catch {
+    @moonpropertydb.DatabaseError::TransactionFailed => ()
+    _ => fail("failed transactions must reject later writes")
+  } noraise {
+    _ => fail("failed transactions must raise on later writes")
+  }
+}
+
+///|
+test "transaction stages every graph operation over candidate reads" {
+  let database = @moonpropertydb.Database::new_in_memory()
+  let transaction = try! database.begin_write()
+  let first = try! transaction.create_node(["User"], {
+    "name": @moonpropertydb.PropertyValue::String("Alice"),
+    "age": @moonpropertydb.PropertyValue::Int64(28),
+  })
+  let second = try! transaction.create_node(["User"], {})
+  assert_eq(try! transaction.node_ids_with_label("User"), [first, second])
+
+  try! transaction.add_label(first, "Admin")
+  try! transaction.remove_label(first, "Admin")
+  try! transaction.set_node_property(
+    first,
+    "age",
+    @moonpropertydb.PropertyValue::Int64(29),
+  )
+  try! transaction.remove_node_property(first, "age")
+  let node_read = try! transaction.get_node(first)
+  node_read.labels.push("Detached")
+  node_read.properties.set(
+    "name",
+    @moonpropertydb.PropertyValue::String("Mutated"),
+  )
+  assert_eq((try! transaction.get_node(first)).properties, {
+    "name": @moonpropertydb.PropertyValue::String("Alice"),
+  })
+
+  let edge = try! transaction.create_edge(first, second, "KNOWS", {
+    "weight": @moonpropertydb.PropertyValue::Int64(1),
+  })
+  assert_eq(try! transaction.outgoing_edges(first), [
+    @moonpropertydb.Edge::Edge(
+      id=edge,
+      from=first,
+      to=second,
+      edge_type="KNOWS",
+      properties={ "weight": @moonpropertydb.PropertyValue::Int64(1) },
+    ),
+  ])
+  assert_eq(try! transaction.incoming_edges(second), [
+    @moonpropertydb.Edge::Edge(
+      id=edge,
+      from=first,
+      to=second,
+      edge_type="KNOWS",
+      properties={ "weight": @moonpropertydb.PropertyValue::Int64(1) },
+    ),
+  ])
+  try! transaction.set_edge_property(
+    edge,
+    "weight",
+    @moonpropertydb.PropertyValue::Int64(2),
+  )
+  try! transaction.remove_edge_property(edge, "weight")
+  assert_eq((try! transaction.get_edge(edge)).properties, {})
+
+  try! transaction.create_node_property_index("User", "name")
+  try! transaction.create_edge_property_index("KNOWS", "weight")
+  assert_eq(
+    try! transaction.node_ids_by_property_index(
+      "User",
+      "name",
+      @moonpropertydb.PropertyValue::String("Alice"),
+    ),
+    Some([first]),
+  )
+  assert_eq(
+    try! transaction.edge_ids_by_property_index(
+      "KNOWS",
+      "weight",
+      @moonpropertydb.PropertyValue::Int64(2),
+    ),
+    Some([]),
+  )
+
+  try! transaction.delete_edge(edge)
+  try! transaction.delete_node(second)
+  try! transaction.delete_node_cascade(first)
+  try database.get_node(first) catch {
+    @moonpropertydb.DatabaseError::NodeNotFound(id) => assert_eq(id, first)
+    _ => fail("staged transaction data must not enter committed reads")
+  } noraise {
+    _ => fail("staged transaction data must remain uncommitted")
+  }
+}

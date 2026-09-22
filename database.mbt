@@ -7,9 +7,12 @@ priv struct DatabaseState {
 }
 
 ///|
-/// The only transaction lifecycle state needed by this boundary slice.
+/// The private transaction lifecycle shared by the database and its writer.
 priv enum TransactionStatus {
   Active
+  Failed
+  Committed
+  RolledBack
 }
 
 ///|
@@ -19,12 +22,10 @@ pub struct Database {
 }
 
 ///|
-/// A constructor-facing transaction handle. Transaction operations are added
-/// by the write-transaction implementation; its candidate remains private to
-/// the package until then.
-#warnings("-unused_field")
+/// A write transaction over one detached candidate graph.
 pub struct WriteTransaction {
   priv candidate : GraphState
+  priv status : Ref[TransactionStatus]
 }
 
 ///|
@@ -78,7 +79,7 @@ pub fn Database::begin_write(
   let status = Ref::Ref(Active)
   let candidate = self.state.val.committed.copy_detached()
   self.state.val.active = Some(status)
-  { candidate, }
+  { candidate, status, }
 }
 
 ///|
