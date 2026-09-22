@@ -1510,6 +1510,32 @@ test "failed graph mutations preserve property index state" {
   let from = try! graph.create_node([], {})
   let to = try! graph.create_node([], {})
   try! graph.create_edge_property_index("LINK", "weight")
+  let edge = try! graph.create_edge(from, to, "LINK", {
+    "weight": PropertyValue::Int64(1),
+  })
+  assert_eq(edge, EdgeId(1))
+  let definition = EdgePropertyIndex::new("LINK", "weight")
+
+  let before_missing_endpoint_edge = try! graph.get_edge(edge)
+  let before_missing_endpoint_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_missing_endpoint_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_missing_endpoint_outgoing = match
+    graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_missing_endpoint_incoming = match graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
   try
     graph.create_edge(NodeId(99), to, "LINK", {
       "weight": PropertyValue::Int64(1),
@@ -1521,6 +1547,49 @@ test "failed graph mutations preserve property index state" {
   } noraise {
     _ => fail("missing endpoint should be rejected")
   }
+  assert_eq(try! graph.get_edge(edge), before_missing_endpoint_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_missing_endpoint_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_missing_endpoint_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_missing_endpoint_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_missing_endpoint_incoming),
+  )
+
+  let before_non_finite_create_edge = try! graph.get_edge(edge)
+  let before_non_finite_create_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_non_finite_create_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_non_finite_create_outgoing = match
+    graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_non_finite_create_incoming = match
+    graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
   try
     graph.create_edge(from, to, "LINK", {
       "weight": PropertyValue::Float64(@double.infinity),
@@ -1531,16 +1600,105 @@ test "failed graph mutations preserve property index state" {
   } noraise {
     _ => fail("non-finite edge property should be rejected")
   }
+  assert_eq(try! graph.get_edge(edge), before_non_finite_create_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_non_finite_create_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_non_finite_create_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_non_finite_create_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_non_finite_create_incoming),
+  )
+  let next_edge_after_rejected_creates = try! graph.create_edge(
+    from,
+    to,
+    "LINK",
+    { "weight": PropertyValue::Int64(1) },
+  )
+  assert_eq(next_edge_after_rejected_creates, EdgeId(2))
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    Some([edge, next_edge_after_rejected_creates]),
+  )
+
+  let before_duplicate_index_edge = try! graph.get_edge(edge)
+  let before_duplicate_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_duplicate_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_duplicate_outgoing = match graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_duplicate_incoming = match graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
   try graph.create_edge_property_index("LINK", "weight") catch {
     DatabaseError::IndexAlreadyExists(..) => ()
     _ => fail("duplicate edge index should be rejected")
   } noraise {
     _ => fail("duplicate edge index should be rejected")
   }
-  let edge = try! graph.create_edge(from, to, "LINK", {
-    "weight": PropertyValue::Int64(1),
-  })
-  assert_eq(edge, EdgeId(1))
+  assert_eq(try! graph.get_edge(edge), before_duplicate_index_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_duplicate_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_duplicate_definition),
+  )
+  assert_eq(graph.outgoing_edge_ids.get(from), Some(before_duplicate_outgoing))
+  assert_eq(graph.incoming_edge_ids.get(to), Some(before_duplicate_incoming))
+
+  let before_non_finite_update_edge = try! graph.get_edge(edge)
+  let before_non_finite_update_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_non_finite_update_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_non_finite_update_outgoing = match
+    graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_non_finite_update_incoming = match
+    graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
   try
     graph.set_edge_property(
       edge,
@@ -1553,20 +1711,74 @@ test "failed graph mutations preserve property index state" {
   } noraise {
     _ => fail("invalid edge property update should be rejected")
   }
+  assert_eq(try! graph.get_edge(edge), before_non_finite_update_edge)
   assert_eq(
     try! graph.edge_ids_by_property_index(
       "LINK",
       "weight",
       PropertyValue::Int64(1),
     ),
-    Some([edge]),
+    before_non_finite_update_index,
   )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_non_finite_update_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_non_finite_update_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_non_finite_update_incoming),
+  )
+
+  let before_missing_delete_edge = try! graph.get_edge(edge)
+  let before_missing_delete_index = try! graph.edge_ids_by_property_index(
+    "LINK",
+    "weight",
+    PropertyValue::Int64(1),
+  )
+  let before_missing_delete_definition = match
+    graph.edge_property_indexes.get(definition) {
+    Some(values) => values.copy()
+    None => fail("expected declared LINK index")
+  }
+  let before_missing_delete_outgoing = match graph.outgoing_edge_ids.get(from) {
+    Some(ids) => ids.copy()
+    None => fail("expected source adjacency entry")
+  }
+  let before_missing_delete_incoming = match graph.incoming_edge_ids.get(to) {
+    Some(ids) => ids.copy()
+    None => fail("expected destination adjacency entry")
+  }
   try graph.delete_edge(EdgeId(99)) catch {
     DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
     _ => fail("missing edge deletion should be rejected")
   } noraise {
     _ => fail("missing edge deletion should be rejected")
   }
+  assert_eq(try! graph.get_edge(edge), before_missing_delete_edge)
+  assert_eq(
+    try! graph.edge_ids_by_property_index(
+      "LINK",
+      "weight",
+      PropertyValue::Int64(1),
+    ),
+    before_missing_delete_index,
+  )
+  assert_eq(
+    graph.edge_property_indexes.get(definition),
+    Some(before_missing_delete_definition),
+  )
+  assert_eq(
+    graph.outgoing_edge_ids.get(from),
+    Some(before_missing_delete_outgoing),
+  )
+  assert_eq(
+    graph.incoming_edge_ids.get(to),
+    Some(before_missing_delete_incoming),
+  )
   assert_edge_property_index_matches_scan(
     graph,
     "LINK",
@@ -1618,4 +1830,12 @@ test "failed graph mutations preserve property index state" {
   )
   assert_eq(try! cascade_graph.get_edge(incoming).id, incoming)
   assert_eq(try! cascade_graph.get_edge(outgoing).id, outgoing)
+  try cascade_graph.get_edge(EdgeId(99)) catch {
+    DatabaseError::EdgeNotFound(missing) => assert_eq(missing, EdgeId(99))
+    _ => fail("stale adjacency reference must not name an edge")
+  } noraise {
+    _ => fail("stale adjacency reference must not name an edge")
+  }
+  let next_edge = try! cascade_graph.create_edge(left, right, "AFTER", {})
+  assert_eq(next_edge, EdgeId(3))
 }
