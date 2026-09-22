@@ -122,10 +122,13 @@ indexes by `(edge type, property)`, with typed-scalar backfill, deterministic
 lookups and detached ID arrays. Node postings are maintained on node creation,
 label addition/removal, property set/removal, strict deletion, and cascade
 deletion. Edge postings are only built when the index is created; edge create,
-property change/removal, direct deletion, and cascade cleanup do not yet update
-them, so Task 4 must complete this lifecycle before edge indexes are consistent
-after writes. The latest native suite passes **21/21**. These are internal
-graph-state capabilities and add no public index API or CLI.
+property change/removal, direct deletion, and cascade cleanup maintain the
+corresponding buckets, including empty-bucket cleanup while retaining index
+definitions. Failed endpoint/property/index operations and stale-adjacency
+cascade rejection are covered for failure atomicity and ID preservation. Task
+4 is complete locally in commits `297452d` and `4689f43`; the latest native
+suite passes **23/23**. These are internal graph-state capabilities and add no
+public index API or CLI.
 
 Issue #6 is not complete or closable. Issue #7 rollback atomicity must verify
 that transaction rollback leaves both index definitions and contents
@@ -150,7 +153,7 @@ change Git configuration or stage these files to clear the flags.
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
 | In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 PR #18; local tests pass 13/13; hosted native check passed on `693f4fb` |
 | Label/type secondary indexes | Implemented privately on unmerged PR #19; local tests pass 16/16; hosted native check passed on `696fe2a` |
-| Property equality indexes | Partial/private: node and edge definitions, backfill and lookups; node lifecycle postings maintained, edge lifecycle postings pending Task 4; public API/CLI, Issue #7 rollback atomicity, and persistence/snapshot integration outstanding; latest native suite 21/21 |
+| Property equality indexes | Partial/private: node and edge definitions, backfill, lookups, and node/edge lifecycle postings are implemented and tested; public API/CLI, Issue #7 rollback atomicity, and persistence/snapshot integration remain outstanding; latest native suite 23/23 |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |
 | Snapshots and checkpoint | Planned; not implemented |
