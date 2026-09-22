@@ -152,7 +152,7 @@ change Git configuration or stage these files to clear the flags.
 | Module and project foundation | Present on the foundation branch; both PR #16 Linux `native` runs on `df9c089` passed |
 | Public graph model and structured errors | Present on unmerged Issue #1 branch; reviewed/CI pending |
 | In-memory graph store | Private node/edge CRUD, adjacency, and strict/cascade node deletion on unmerged Issue #13 PR #18; local tests pass 13/13; hosted native check passed on `693f4fb` |
-| Label/type secondary indexes | Implemented privately on unmerged PR #19; local tests pass 16/16; hosted native check passed on `696fe2a` |
+| Label/type secondary indexes | Implemented privately on unmerged PR #19; local tests pass 16/16; hosted native check passed on head `7abc1e6` (run `35586118013`) |
 | Property equality indexes | Partial/private: node and edge definitions, backfill, lookups, and node/edge lifecycle postings are implemented and tested; public API/CLI, Issue #7 rollback atomicity, and persistence/snapshot integration remain outstanding; latest native suite 23/23 |
 | Atomic write transactions | Planned; not implemented |
 | Commit log, corruption detection and recovery | Planned; not implemented |
