@@ -40,6 +40,100 @@ test "wal record encoding is deterministic" {
 }
 
 ///|
+test "wal record decoder distinguishes round trip tail and checksum" {
+  let record = WalRecord::{
+    transaction_id: 7UL,
+    operations: [WalOperation::{ tag: 1, payload: b"node", }],
+  }
+  let encoded = wal_encode(record)
+  let decoded = try! wal_decode(encoded, file="wal", offset=0UL)
+  match decoded {
+    WalDecode::Complete(decoded, consumed) => {
+      assert_eq(consumed, encoded.length())
+      assert_eq(decoded.transaction_id, 7UL)
+      assert_eq(decoded.operations.length(), 1)
+      assert_eq(decoded.operations[0].tag, 1)
+      assert_eq(decoded.operations[0].payload, b"node")
+    }
+    WalDecode::Truncated => fail("a complete WAL record must not be truncated")
+  }
+
+  let tail = try! wal_decode(
+    encoded[0:encoded.length() - 1].to_owned(),
+    file="wal",
+    offset=9UL,
+  )
+  match tail {
+    WalDecode::Truncated => ()
+    WalDecode::Complete(_, _) => fail("a short WAL tail must be truncated")
+  }
+
+  let corrupted : Array[Byte] = encoded.to_array()
+  corrupted[encoded.length() - 1] = corrupted[encoded.length() - 1].lxor(
+    b"\x01".at(0),
+  )
+  try wal_decode(Bytes::from_array(corrupted), file="wal", offset=11UL) catch {
+    DatabaseError::LogChecksumFailed(
+      file="wal",
+      offset=11UL,
+      transaction_id=Some(7UL)
+    ) => ()
+    _ => fail("a checksum mismatch must be classified as a checksum failure")
+  } noraise {
+    _ => fail("a checksum mismatch must raise")
+  }
+}
+
+///|
+test "wal record decoder rejects invalid framing and unknown operations" {
+  let record = WalRecord::{
+    transaction_id: 8UL,
+    operations: [WalOperation::{ tag: 1, payload: b"node", }],
+  }
+  let encoded = wal_encode(record)
+
+  let bad_magic : Array[Byte] = encoded.to_array()
+  bad_magic[0] = b"X".at(0)
+  try wal_decode(Bytes::from_array(bad_magic), file="wal", offset=3UL) catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=3UL,
+      transaction_id=None,
+      reason="invalid WAL magic"
+    ) => ()
+    _ => fail("bad magic must be corruption")
+  } noraise {
+    _ => fail("bad magic must raise")
+  }
+
+  let bad_version : Array[Byte] = encoded.to_array()
+  bad_version[8] = b"\x02".at(0)
+  try wal_decode(Bytes::from_array(bad_version), file="wal", offset=4UL) catch {
+    DatabaseError::IncompatibleDatabaseFormat(version~) =>
+      assert_eq(version, 2U.to_uint16())
+    _ => fail("unsupported WAL versions must be rejected")
+  } noraise {
+    _ => fail("unsupported WAL versions must raise")
+  }
+
+  let unknown_operation : Array[Byte] = encoded.to_array()
+  unknown_operation[32] = b"\x7F".at(0)
+  try
+    wal_decode(Bytes::from_array(unknown_operation), file="wal", offset=5UL)
+  catch {
+    DatabaseError::CorruptLogRecord(
+      file="wal",
+      offset=37UL,
+      transaction_id=Some(8UL),
+      reason="unknown WAL operation tag"
+    ) => ()
+    _ => fail("unknown operation tags must be rejected")
+  } noraise {
+    _ => fail("unknown operation tags must raise")
+  }
+}
+
+///|
 test "graph candidate copy detaches graph and every index collection" {
   let original = GraphState::new()
   let first = try! original.create_node(["User"], {
