@@ -213,3 +213,53 @@ test "database errors preserve category and query location" {
     ),
   )
 }
+
+///|
+test "in-memory database starts with committed reads only" {
+  let database = @moonpropertydb.Database::new_in_memory()
+  try database.get_node(@moonpropertydb.NodeId(1)) catch {
+    @moonpropertydb.DatabaseError::NodeNotFound(id) =>
+      assert_eq(id, @moonpropertydb.NodeId(1))
+    _ => fail("empty database must report a missing node")
+  } noraise {
+    _ => fail("empty database read must return a structured error")
+  }
+  try database.get_edge(@moonpropertydb.EdgeId(1)) catch {
+    @moonpropertydb.DatabaseError::EdgeNotFound(id) =>
+      assert_eq(id, @moonpropertydb.EdgeId(1))
+    _ => fail("empty database must report a missing edge")
+  } noraise {
+    _ => fail("empty database read must return a structured error")
+  }
+}
+
+///|
+test "closed database rejects reads, writers, and repeated close" {
+  let database = @moonpropertydb.Database::new_in_memory()
+  let _transaction = try! database.begin_write()
+  try! database.close()
+  try database.get_node(@moonpropertydb.NodeId(1)) catch {
+    @moonpropertydb.DatabaseError::DatabaseClosed => ()
+    _ => fail("closed database must reject node reads")
+  } noraise {
+    _ => fail("closed database read must return a structured error")
+  }
+  try database.get_edge(@moonpropertydb.EdgeId(1)) catch {
+    @moonpropertydb.DatabaseError::DatabaseClosed => ()
+    _ => fail("closed database must reject edge reads")
+  } noraise {
+    _ => fail("closed database read must return a structured error")
+  }
+  try database.begin_write() catch {
+    @moonpropertydb.DatabaseError::DatabaseClosed => ()
+    _ => fail("closed database must reject new writers")
+  } noraise {
+    _ => fail("closed database write must return a structured error")
+  }
+  try database.close() catch {
+    @moonpropertydb.DatabaseError::DatabaseClosed => ()
+    _ => fail("closing a closed database must return a structured error")
+  } noraise {
+    _ => fail("closing a closed database must return a structured error")
+  }
+}

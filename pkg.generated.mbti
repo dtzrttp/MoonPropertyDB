@@ -14,6 +14,7 @@ pub(all) suberror DatabaseError {
   DatabaseClosed
   IncompatibleDatabaseFormat(version~ : UInt16)
   WriterLockOccupied(path~ : String)
+  WriterTransactionActive
   NodeNotFound(NodeId)
   NodeIdExhausted
   EdgeNotFound(EdgeId)
@@ -38,6 +39,15 @@ pub(all) suberror DatabaseError {
 } derive(Eq, @debug.Debug)
 
 // Types and methods
+pub struct Database {
+  // private fields
+}
+pub fn Database::begin_write(Self) -> WriteTransaction raise DatabaseError
+pub fn Database::close(Self) -> Unit raise DatabaseError
+pub fn Database::get_edge(Self, EdgeId) -> Edge raise DatabaseError
+pub fn Database::get_node(Self, NodeId) -> Node raise DatabaseError
+pub fn Database::new_in_memory() -> Self
+
 pub(all) struct Edge {
   id : EdgeId
   from : NodeId
@@ -72,6 +82,10 @@ pub(all) struct SourcePosition {
   column : Int
 } derive(Eq, @debug.Debug)
 pub fn SourcePosition::SourcePosition(offset~ : UInt64, line~ : Int, column~ : Int) -> Self
+
+pub struct WriteTransaction {
+  // private fields
+}
 
 // Type aliases
 pub type Properties = Map[String, PropertyValue]

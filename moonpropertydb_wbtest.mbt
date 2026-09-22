@@ -102,6 +102,58 @@ test "graph candidate copy detaches graph and every index collection" {
 }
 
 ///|
+test "staged data is invisible and only one writer is active" {
+  let database = Database::new_in_memory()
+  let transaction = try! database.begin_write()
+  let staged_node = try! transaction.candidate.create_node(["Staged"], {})
+  try database.get_node(staged_node) catch {
+    DatabaseError::NodeNotFound(id) => assert_eq(id, staged_node)
+    _ => fail("committed reads must not inspect the transaction candidate")
+  } noraise {
+    _ => fail("staged node read must return a structured error")
+  }
+  let shared_database = database
+  try shared_database.begin_write() catch {
+    DatabaseError::WriterTransactionActive => ()
+    _ => fail("a second writer must be rejected while the first is active")
+  } noraise {
+    _ => fail("second writer rejection must return a structured error")
+  }
+}
+
+///|
+test "database committed reads return detached node and edge values" {
+  let database = Database::new_in_memory()
+  let node_id = try! database.state.val.committed.create_node(["User"], {
+    "name": PropertyValue::String("Alice"),
+  })
+  let other_id = try! database.state.val.committed.create_node([], {})
+  let edge_id = try! database.state.val.committed.create_edge(
+    node_id,
+    other_id,
+    "KNOWS",
+    { "weight": PropertyValue::Int64(1) },
+  )
+  let node = try! database.get_node(node_id)
+  node.labels.push("Mutated")
+  node.properties.set("name", PropertyValue::String("Mallory"))
+  let edge = try! database.get_edge(edge_id)
+  edge.properties.set("weight", PropertyValue::Int64(2))
+  assert_eq(
+    try! database.get_node(node_id),
+    Node::Node(id=node_id, labels=["User"], properties={
+      "name": PropertyValue::String("Alice"),
+    }),
+  )
+  assert_eq(
+    try! database.get_edge(edge_id),
+    Edge::Edge(id=edge_id, from=node_id, to=other_id, edge_type="KNOWS", properties={
+      "weight": PropertyValue::Int64(1),
+    }),
+  )
+}
+
+///|
 test "graph state creates nodes with monotonic ids and isolated values" {
   let graph = GraphState::new()
   let invalid_values = [
