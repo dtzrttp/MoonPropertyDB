@@ -121,9 +121,9 @@ It contains private in-memory node indexes by `(label, property)` and edge
 indexes by `(edge type, property)`, with typed-scalar backfill, deterministic
 lookups and detached ID arrays. Node postings are maintained on node creation,
 label addition/removal, property set/removal, strict deletion, and cascade
-deletion. Edge postings are only built when the index is created; edge create,
-property change/removal, direct deletion, and cascade cleanup maintain the
-corresponding buckets, including empty-bucket cleanup while retaining index
+deletion. Edge postings are backfilled at index creation and then maintained
+on edge create, property change/removal, direct deletion, and cascade cleanup,
+including empty-bucket cleanup while retaining index
 definitions. Failed endpoint/property/index operations and stale-adjacency
 cascade rejection are covered for failure atomicity and ID preservation. Task
 4 is complete locally in commits `297452d` and `4689f43`; the latest native

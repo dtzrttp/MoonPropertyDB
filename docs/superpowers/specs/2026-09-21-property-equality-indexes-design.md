@@ -1,6 +1,6 @@
 # Property Equality Indexes — Issue #6 Design Addendum
 
-**Status:** Proposed implementation design. The v0.1 architecture is approved; this addendum narrows implementation to the in-memory graph layer. No property equality index implementation exists on this branch yet.
+**Status:** Proposed implementation design. The v0.1 architecture is approved; this addendum narrows implementation to the in-memory graph layer. The implementation is tracked on the unmerged Issue #6 branch and remains subject to the limits below.
 
 ## Goal and boundary
 
