@@ -3,6 +3,13 @@
 // Keep them focused; public behavior belongs in `_test.mbt`.
 
 ///|
+test "wal codec uses crc32 iso hdlc and little endian fields" {
+  assert_eq(wal_crc32(b"123456789"), 3421780262UL)
+  assert_eq(wal_u16_bytes(0x1234UL), b"\x34\x12")
+  assert_eq(wal_u32_bytes(0x78563412UL), b"\x12\x34\x56\x78")
+}
+
+///|
 test "graph candidate copy detaches graph and every index collection" {
   let original = GraphState::new()
   let first = try! original.create_node(["User"], {
