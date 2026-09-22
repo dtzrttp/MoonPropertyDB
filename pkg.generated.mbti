@@ -1,12 +1,77 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "dtzrttp/moonpropertydb"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 
 // Errors
+pub(all) suberror DatabaseError {
+  DatabaseDirectoryNotFound(path~ : String)
+  DatabaseNotInitialized(path~ : String)
+  DatabaseClosed
+  IncompatibleDatabaseFormat(version~ : UInt16)
+  WriterLockOccupied(path~ : String)
+  NodeNotFound(NodeId)
+  EdgeNotFound(EdgeId)
+  EndpointNodeNotFound(NodeId)
+  NodeHasIncidentEdges(NodeId)
+  InvalidPropertyValue(property~ : String, reason~ : String)
+  IndexAlreadyExists(name~ : String)
+  IndexNotFound(name~ : String)
+  QueryLexicalError(position~ : SourcePosition, reason~ : String)
+  QuerySyntaxError(position~ : SourcePosition, reason~ : String)
+  QuerySemanticError(position~ : SourcePosition, reason~ : String)
+  IncompleteLogRecord(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?)
+  LogChecksumFailed(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?)
+  CorruptLogRecord(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?, reason~ : String)
+  SnapshotChecksumFailed(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?)
+  CorruptSnapshot(file~ : String, offset~ : UInt64, transaction_id~ : UInt64?, reason~ : String)
+  IoError(file~ : String, operation~ : String, reason~ : String)
+  TransactionAlreadyCommitted
+  TransactionAlreadyRolledBack
+  CommitOutcomeUnknown
+} derive(Eq, @debug.Debug)
 
 // Types and methods
+pub(all) struct Edge {
+  id : EdgeId
+  from : NodeId
+  to : NodeId
+  edge_type : String
+  properties : Map[String, PropertyValue]
+} derive(Eq, @debug.Debug)
+pub fn Edge::Edge(id~ : EdgeId, from~ : NodeId, to~ : NodeId, edge_type~ : String, properties~ : Map[String, PropertyValue]) -> Self
+
+pub(all) struct EdgeId(UInt64) derive(Eq, Hash, @debug.Debug)
+
+pub(all) struct Node {
+  id : NodeId
+  labels : Array[String]
+  properties : Map[String, PropertyValue]
+} derive(Eq, @debug.Debug)
+pub fn Node::Node(id~ : NodeId, labels~ : Array[String], properties~ : Map[String, PropertyValue]) -> Self
+
+pub(all) struct NodeId(UInt64) derive(Eq, Hash, @debug.Debug)
+
+pub(all) enum PropertyValue {
+  Bool(Bool)
+  Int64(Int64)
+  Float64(Double)
+  String(String)
+  Bytes(Bytes)
+} derive(Eq, Hash, @debug.Debug)
+
+pub(all) struct SourcePosition {
+  offset : UInt64
+  line : Int
+  column : Int
+} derive(Eq, @debug.Debug)
+pub fn SourcePosition::SourcePosition(offset~ : UInt64, line~ : Int, column~ : Int) -> Self
 
 // Type aliases
+pub type Properties = Map[String, PropertyValue]
 
 // Traits
