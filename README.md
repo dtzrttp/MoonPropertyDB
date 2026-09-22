@@ -1,89 +1,124 @@
 # MoonPropertyDB
 
-MoonPropertyDB is planned as an embedded, native MoonBit property-graph
-database for applications that need local graph storage without a separate
-database server.
+MoonPropertyDB is an embedded property-graph database library written in
+MoonBit. It is designed for local application data without a separate database
+server.
 
-> **Development status:** this repository currently contains the project and
-> MoonBit module scaffold only. It is not yet a usable graph database. Node or
-> edge operations, indexes, transactions, persistence, recovery, queries, and
-> the CLI are planned, not implemented.
+## Status
 
-## Scope
+The current development snapshot implements a tested in-memory slice:
 
-The approved v0.1 plan prioritizes a small, documented MoonBit API; scalar node
-and edge data; in-memory graph indexes; single-writer atomic transactions; a
-checksummed commit log; crash recovery and snapshots; a bounded read-only graph
-query language; and a local CLI and dependency-graph example. JSONL import and
-export are P1 and will not delay the P0 release.
+- typed node and edge IDs and scalar property values;
+- node and directed-edge CRUD with endpoint validation;
+- incoming/outgoing adjacency indexes;
+- node-label and edge-type indexes;
+- node- and edge-property equality indexes;
+- a single-writer, detached-candidate transaction boundary;
+- structured errors and 34 native tests.
 
-The project does not target full Neo4j/openCypher compatibility or claim to be a
-production-grade database replacement. Multi-writer concurrency, MVCC,
-distributed operation, a database server, range/composite/full-text/vector
-indexes, and browser/Wasm persistence are outside v0.1.
+The v0.1 database is not complete yet. Persistent `open(path)` / `close()` data
+storage, commit logs, crash recovery, snapshots, checkpointing, the query
+lexer/parser/planner/executor, the CLI, process locking, and the local
+dependency-graph demo remain planned work. Do not use the current in-memory API
+as durable application storage.
 
-See the [approved v0.1 design](docs/superpowers/specs/2026-09-20-moonpropertydb-design.md)
-and the [architecture overview](docs/architecture.md).
+## Scope and non-goals
 
-## Development setup
+The approved v0.1 design targets a small reusable MoonBit API, scalar graph
+data, deterministic in-memory indexes, single-writer atomic transactions, and
+eventual versioned persistence. It does not target full Neo4j/openCypher
+compatibility, a database server, multi-writer concurrency, MVCC, distributed
+transactions, range/full-text/vector indexes, or a production database
+replacement.
 
-The library and CLI are not published yet. Install the MoonBit CLI using the
-[official download instructions](https://www.moonbitlang.com/download/) for
-your operating system. Then clone the repository and run the current native
-checks from its root:
+The design and status records are in:
+
+- [architecture overview](docs/architecture.md)
+- [development progress](docs/progress.md)
+- [file-format notes](docs/file-format.md)
+- [recovery notes](docs/recovery.md)
+- [query-language notes](docs/query-language.md)
+- [source and license notes](docs/source-notes.md)
+
+## Requirements and checks
+
+Install the current MoonBit CLI from the [official instructions](https://www.moonbitlang.com/download/),
+then run from the repository root:
 
 ```sh
-git clone https://github.com/dtzrttp/MoonPropertyDB.git
-cd MoonPropertyDB
 moon check --target native
 moon test --target native
+moon build --target native
 moon fmt --check
 moon info --target native
 ```
 
-The scaffold was initialized with Moon `0.1.20260915`. At this stage
-`moon test --target native` reports zero tests and `no test entry found`; this
-means behavior tests have not been added yet, not that database behavior is
-validated.
+The tested toolchain snapshot is Moon `0.1.20260915` with `moonc`
+`0.10.13+cbb11c36f`. The CI workflow repeats the native check, test, build,
+format, and interface-generation checks.
 
-## Minimal library example
+## Runnable in-memory example
 
-There is no public `Database` API yet, so the repository cannot provide a
-runnable library example without inventing an unimplemented interface. A
-verified example will be added with the first public API.
+The example creates two package nodes, connects them with a directed
+`DEPENDS_ON` edge, commits the transaction, reads the committed node, and
+closes the in-memory database:
 
-## CLI and query examples
-
-The following illustrates the intended direction only. The command and query
-are **not executable yet** because the CLI and query engine are not implemented:
-
-```text
-moonpropertydb query ./data 'MATCH (a:Package)-[:DEPENDS_ON]->(b:Package)
-WHERE a.name = "example"
-RETURN b.id, b.name
-LIMIT 50'
+```sh
+moon run examples/in_memory_graph --target native
 ```
 
-Planned CLI commands include `init`, `query`, `index create`, `stats`, `verify`,
-and `checkpoint`. The command examples will become runnable only after their
-implementation and tests land.
+This example is intentionally in-memory. It does not imply persistence or
+recovery support.
 
-## Persistence and recovery
+## Library API example
 
-The design uses an append-only transaction log and versioned, checksummed
-snapshots, with recovery by loading a valid snapshot and replaying later
-commits. None of that storage behavior exists in the current scaffold; do not
-store application data with this project yet. Locking, durable synchronization,
-atomic replacement, and directory-sync guarantees on Windows and Linux remain
-verification gates.
+The current public API can be used directly from MoonBit code:
 
-## Tracking and roadmap
+```moonbit
+let database = @moonpropertydb.Database::new_in_memory()
+let transaction = try! database.begin_write()
+let package_a = try! transaction.create_node(["Package"], {
+  "name": @moonpropertydb.PropertyValue::String("app"),
+})
+let package_b = try! transaction.create_node(["Package"], {})
+let _dependency = try! transaction.create_edge(
+  package_a,
+  package_b,
+  "DEPENDS_ON",
+  {},
+)
+try! transaction.commit()
+let committed = try! database.get_node(package_a)
+println("committed labels: \{committed.labels.length()}")
+try! database.close()
+```
 
-Development is tracked in the [v0.1.0 milestone](https://github.com/dtzrttp/MoonPropertyDB/milestone/1)
-and the [project issues](https://github.com/dtzrttp/MoonPropertyDB/issues).
-Current foundation work is tracked by [Issue #4](https://github.com/dtzrttp/MoonPropertyDB/issues/4).
-The [progress log](docs/progress.md) distinguishes delivered work from planned
-features.
+The public interface is generated by `moon info`; `pkg.generated.mbti` is a
+generated review artifact and should not be edited manually.
+
+## CLI, persistence, and query language
+
+The planned CLI commands include `init`, `query`, `index create`, `stats`,
+`verify`, `checkpoint`, import, and export. They are not implemented in this
+snapshot, so command examples must not be treated as executable instructions.
+
+The planned storage layer uses a versioned, checksummed append-only log and
+validated snapshots. The planned query language is a bounded read-only
+property-graph subset, not full openCypher. See the design notes for the
+explicit boundaries and recovery invariants.
+
+## Tests and source provenance
+
+Tests cover scalar values, model behavior, graph mutations, adjacency,
+secondary indexes, transaction lifecycle, rollback, and structured failures.
+Storage corruption, reopen/recovery, snapshots, query execution, CLI behavior,
+and cross-process locking tests will be added with their implementations.
+
+MoonPropertyDB is an original MoonBit implementation for this repository. No
+upstream source code, copied fixtures, or third-party runtime package is used
+by the current snapshot. The standard `moonbitlang/core` package is supplied by
+the MoonBit toolchain. See [source and license notes](docs/source-notes.md)
+before adding dependencies or generated/test data.
 
 ## License
 

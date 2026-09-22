@@ -1,0 +1,5 @@
+import {
+  "dtzrttp/moonpropertydb",
+}
+
+pkgtype(kind: "executable")
