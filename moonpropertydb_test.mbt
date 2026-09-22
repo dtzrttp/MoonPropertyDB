@@ -387,3 +387,47 @@ test "transaction stages every graph operation over candidate reads" {
     _ => fail("staged transaction data must remain uncommitted")
   }
 }
+
+///|
+test "commit publishes a batch and rollback publishes nothing" {
+  let database = @moonpropertydb.Database::new_in_memory()
+  let first = try! database.begin_write()
+  let first_id = try! first.create_node(["User"], {
+    "name": @moonpropertydb.PropertyValue::String("Alice"),
+  })
+  try! first.create_node_property_index("User", "name")
+  try! first.commit()
+  assert_eq(
+    try! database.get_node(first_id),
+    @moonpropertydb.Node::Node(id=first_id, labels=["User"], properties={
+      "name": @moonpropertydb.PropertyValue::String("Alice"),
+    }),
+  )
+  try first.rollback() catch {
+    @moonpropertydb.DatabaseError::TransactionAlreadyCommitted => ()
+    _ => fail("a committed transaction must reject rollback")
+  } noraise {
+    _ => fail("a committed transaction must reject rollback")
+  }
+
+  let second = try! database.begin_write()
+  let rolled_back_id = try! second.create_node(["User"], {})
+  try! second.rollback()
+  try database.get_node(rolled_back_id) catch {
+    @moonpropertydb.DatabaseError::NodeNotFound(id) =>
+      assert_eq(id, rolled_back_id)
+    _ => fail("rollback must not publish candidate nodes")
+  } noraise {
+    _ => fail("rollback must not publish candidate nodes")
+  }
+  try second.commit() catch {
+    @moonpropertydb.DatabaseError::TransactionAlreadyRolledBack => ()
+    _ => fail("a rolled-back transaction must reject commit")
+  } noraise {
+    _ => fail("a rolled-back transaction must reject commit")
+  }
+
+  let third = try! database.begin_write()
+  assert_eq(try! third.create_node(["User"], {}), rolled_back_id)
+  try! third.commit()
+}

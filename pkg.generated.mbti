@@ -88,6 +88,7 @@ pub struct WriteTransaction {
   // private fields
 }
 pub fn WriteTransaction::add_label(Self, NodeId, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::commit(Self) -> Unit raise DatabaseError
 pub fn WriteTransaction::create_edge(Self, NodeId, NodeId, String, Map[String, PropertyValue]) -> EdgeId raise DatabaseError
 pub fn WriteTransaction::create_edge_property_index(Self, String, String) -> Unit raise DatabaseError
 pub fn WriteTransaction::create_node(Self, Array[String], Map[String, PropertyValue]) -> NodeId raise DatabaseError
@@ -106,6 +107,7 @@ pub fn WriteTransaction::outgoing_edges(Self, NodeId) -> Array[Edge] raise Datab
 pub fn WriteTransaction::remove_edge_property(Self, EdgeId, String) -> Unit raise DatabaseError
 pub fn WriteTransaction::remove_label(Self, NodeId, String) -> Unit raise DatabaseError
 pub fn WriteTransaction::remove_node_property(Self, NodeId, String) -> Unit raise DatabaseError
+pub fn WriteTransaction::rollback(Self) -> Unit raise DatabaseError
 pub fn WriteTransaction::set_edge_property(Self, EdgeId, String, PropertyValue) -> Unit raise DatabaseError
 pub fn WriteTransaction::set_node_property(Self, NodeId, String, PropertyValue) -> Unit raise DatabaseError
 

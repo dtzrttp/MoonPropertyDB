@@ -251,6 +251,87 @@ test "failed write poisons transaction without partial candidate mutation" {
 }
 
 ///|
+test "terminal transaction states release the writer slot" {
+  let database = Database::new_in_memory()
+  let committed = try! database.begin_write()
+  let committed_node = try! committed.create_node(["User"], {
+    "name": PropertyValue::String("Alice"),
+  })
+  try! committed.create_node_property_index("User", "name")
+  try! committed.commit()
+  assert_eq(
+    try! database.state.val.committed.node_ids_by_property_index(
+      "User",
+      "name",
+      PropertyValue::String("Alice"),
+    ),
+    Some([committed_node]),
+  )
+  match committed.status.val {
+    Committed => ()
+    _ => fail("commit must mark the shared transaction status")
+  }
+  match database.state.val.active {
+    None => ()
+    Some(_) => fail("commit must release the database writer slot")
+  }
+
+  let rolled_back = try! database.begin_write()
+  let _ = try! rolled_back.create_node([], {})
+  try! rolled_back.rollback()
+  match rolled_back.status.val {
+    RolledBack => ()
+    _ => fail("rollback must mark the shared transaction status")
+  }
+  match database.state.val.active {
+    None => ()
+    Some(_) => fail("rollback must release the database writer slot")
+  }
+
+  let failed = try! database.begin_write()
+  try failed.get_node(NodeId(99)) catch {
+    DatabaseError::NodeNotFound(id) => assert_eq(id, NodeId(99))
+    _ => fail("missing candidate reads must preserve their graph error")
+  } noraise {
+    _ => fail("missing candidate reads must raise")
+  }
+  match failed.status.val {
+    Failed => ()
+    _ => fail("failed operations must poison the shared status")
+  }
+  try! failed.rollback()
+  match failed.status.val {
+    RolledBack => ()
+    _ => fail("rollback must recover a failed transaction")
+  }
+}
+
+///|
+test "closing a database rolls back its active transaction" {
+  let database = Database::new_in_memory()
+  let transaction = try! database.begin_write()
+  let node = try! transaction.create_node([], {})
+  try! database.close()
+  match transaction.status.val {
+    RolledBack => ()
+    _ => fail("closing must roll back its active transaction")
+  }
+  match database.state.val.active {
+    None => ()
+    Some(_) => fail("closing must clear the active writer slot")
+  }
+  if database.state.val.closed != true {
+    fail("closing must mark the database closed")
+  }
+  try database.get_node(node) catch {
+    DatabaseError::DatabaseClosed => ()
+    _ => fail("closed databases must reject reads")
+  } noraise {
+    _ => fail("closed databases must reject reads")
+  }
+}
+
+///|
 test "database committed reads return detached node and edge values" {
   let database = Database::new_in_memory()
   let node_id = try! database.state.val.committed.create_node(["User"], {

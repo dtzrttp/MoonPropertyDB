@@ -12,6 +12,39 @@ fn WriteTransaction::require_active(
 }
 
 ///|
+/// Publish the detached candidate as the database's new committed graph.
+pub fn WriteTransaction::commit(
+  self : WriteTransaction,
+) -> Unit raise DatabaseError {
+  self.require_active()
+  let candidate = self.candidate
+  self.database.update(fn(state) {
+    state.committed = candidate
+    state.active = None
+    state
+  })
+  self.status.update(fn(_) { Committed })
+}
+
+///|
+/// Discard the detached candidate and release the database writer slot.
+/// Failed transactions may only be recovered through rollback.
+pub fn WriteTransaction::rollback(
+  self : WriteTransaction,
+) -> Unit raise DatabaseError {
+  match self.status.val {
+    Active | Failed => ()
+    Committed => raise DatabaseError::TransactionAlreadyCommitted
+    RolledBack => raise DatabaseError::TransactionAlreadyRolledBack
+  }
+  self.database.update(fn(state) {
+    state.active = None
+    state
+  })
+  self.status.update(fn(_) { RolledBack })
+}
+
+///|
 /// Create a node in the detached candidate graph.
 pub fn WriteTransaction::create_node(
   self : WriteTransaction,
