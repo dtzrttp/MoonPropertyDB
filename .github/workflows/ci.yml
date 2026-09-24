@@ -24,6 +24,9 @@ jobs:
       - name: Show Moon version
         run: moon version
 
+      - name: Update Moon registry
+        run: moon update
+
       - name: Check native package
         run: moon check --target native
 

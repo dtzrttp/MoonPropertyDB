@@ -25,7 +25,10 @@ features are explicitly marked as planned.
 - A private WAL stream scanner that skips records covered by a snapshot
   boundary, enforces sequential transaction IDs, and distinguishes final tails
   from middle corruption.
-- Public and white-box tests; the current Issue #8 branch contains 41 passing
+- A private native WAL appender that appends encoded records and explicitly
+  synchronizes file data, with tests for ordered bytes and structured open
+  errors. It is not yet integrated into transaction commit.
+- Public and white-box tests; the current Issue #8 branch contains 43 passing
   native tests.
 - A runnable local in-memory example under `examples/in_memory_graph`.
 - Native CI checks for check, build, test, formatting, and generated interface.
@@ -34,8 +37,10 @@ features are explicitly marked as planned.
 
 ### Planned and not yet implemented
 
-- Persistent open/close storage, WAL append and synchronization, operation
-  replay, crash recovery, snapshots, checkpoints, and process locking.
+- Persistent database open/close and transaction-integrated WAL commits,
+  operation replay, crash recovery, snapshots, checkpoints, and process
+  locking. The current private append-and-sync primitive alone does not meet
+  those database-level requirements.
 - Query lexer/parser/planner/executor and the `moonpropertydb query` CLI.
 - Full CLI commands, JSONL import/export, and the dependency-graph demo.
 - Mooncakes publication and Gitlink synchronization.
