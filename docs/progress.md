@@ -54,8 +54,8 @@ record and decode-result types remain private.
 
 The first hosted run showed that a fresh GitHub runner must refresh its Moon
 registry index before resolving the new dependency. CI now runs `moon update`
-before `moon check`; the same update and check succeed locally. The hosted
-rerun is pending.
+before `moon check`; the same update and check succeed locally. Both hosted
+push and pull-request CI runs pass with this setup.
 
 ## Planned v0.1 work
 
