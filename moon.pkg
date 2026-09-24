@@ -1,7 +1,12 @@
 import {
+  "moonbitlang/async/fs",
+}
+
+import {
   "moonbitlang/core/double",
 } for "test"
 
 import {
+  "moonbitlang/async",
   "moonbitlang/core/double",
 } for "wbtest"

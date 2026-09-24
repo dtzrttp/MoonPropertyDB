@@ -2542,3 +2542,51 @@ test "failed graph mutations preserve property index state" {
   let next_edge = try! cascade_graph.create_edge(left, right, "AFTER", {})
   assert_eq(next_edge, EdgeId(3))
 }
+
+///|
+async test "WAL appender writes complete records in order" {
+  let directory = @fs.tmpdir(prefix="moonpropertydb-wal")
+  let path = "\{directory}/wal.bin"
+  let first_record = WalRecord::{
+    transaction_id: 1UL,
+    operations: [WalOperation::{ tag: 1, payload: b"first", }],
+  }
+  let second_record = WalRecord::{
+    transaction_id: 2UL,
+    operations: [WalOperation::{ tag: 1, payload: b"second", }],
+  }
+  let first_bytes = try! wal_encode(first_record)
+  let second_bytes = try! wal_encode(second_record)
+  let expected = Bytes::add(first_bytes, second_bytes)
+
+  wal_append_record(path, first_record)
+  wal_append_record(path, second_record)
+
+  let file = @fs.open(path, mode=@fs.Mode::ReadOnly)
+  let actual = file.read_exactly(expected.length())
+  file.close()
+  @fs.remove(path)
+  @fs.rmdir(directory)
+  assert_eq(actual, expected)
+}
+
+///|
+async test "WAL appender maps open failures to structured I/O errors" {
+  let directory = @fs.tmpdir(prefix="moonpropertydb-wal-error")
+  let path = "\{directory}/missing/wal.bin"
+  let record = WalRecord::{
+    transaction_id: 1UL,
+    operations: [WalOperation::{ tag: 1, payload: b"record", }],
+  }
+
+  try wal_append_record(path, record) catch {
+    DatabaseError::IoError(file=failed_file, operation~, reason=_) => {
+      assert_eq(failed_file, path)
+      assert_eq(operation, "open")
+    }
+    _ => fail("WAL open failures must be classified as I/O errors")
+  } noraise {
+    _ => fail("opening a WAL below a missing directory must fail")
+  }
+  @fs.rmdir(directory)
+}
