@@ -34,6 +34,7 @@ The current toolchain is Moon `0.1.20260915` / `moonc` `0.10.13+cbb11c36f`.
 The following commands pass locally on the native target:
 
 ```text
+moon update
 moon check --target native
 moon test --target native   # 43 passed
 moon build --target native
@@ -50,6 +51,11 @@ interface is reviewed through the generated root `pkg.generated.mbti`, which
 has no changes. `moon ide doc` verified the codec's byte/array APIs and the
 exact `async/fs` open, write, sync, close, and mode signatures used here. WAL
 record and decode-result types remain private.
+
+The first hosted run showed that a fresh GitHub runner must refresh its Moon
+registry index before resolving the new dependency. CI now runs `moon update`
+before `moon check`; the same update and check succeed locally. The hosted
+rerun is pending.
 
 ## Planned v0.1 work
 
