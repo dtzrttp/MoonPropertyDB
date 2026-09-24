@@ -7,8 +7,13 @@ snapshot boundary, skips records already covered by that boundary, and stops
 normally at an incomplete final tail. It raises structured corruption errors
 for middle-record checksum failures and duplicate or gapped transaction IDs.
 
-There is still no durable WAL append, snapshot, checkpoint, or process lock
-implementation.
+The storage package now has a private native WAL file appender that encodes
+one record, opens in append mode, writes it, and explicitly synchronizes data
+before returning. Tests check byte-for-byte ordered appends and structured
+open errors. This primitive is not yet called by transaction commit, and does
+not by itself provide database-level durability or recovery. Snapshot,
+checkpoint, operation replay, persistent open/reopen, and process-lock
+implementations are still absent.
 
 The intended recovery sequence is to validate the newest compatible snapshot,
 rebuild derived indexes, and replay complete log records after the snapshot's

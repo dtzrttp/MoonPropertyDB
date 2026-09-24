@@ -1,8 +1,17 @@
 # Third-party components and source provenance
 
-The current runtime implementation has no third-party Mooncakes dependency.
-The test package imports `moonbitlang/core/double`, which is part of the
-MoonBit toolchain rather than a vendored runtime component.
+## Runtime dependencies
+
+| Component | Version | Source | License | Use |
+| --- | --- | --- | --- | --- |
+| `moonbitlang/async` | `0.22.1` | [moonbitlang/async](https://github.com/moonbitlang/async) | Apache-2.0 | Native WAL file open, append, and explicit data synchronization through `async/fs`; async test runtime for the storage tests. |
+
+The dependency metadata and exact version were checked with `moon view`, and
+the resolved dependency tree was checked with `moon tree`. The installed
+toolchain's `moon ide doc` confirmed the `fs.open`, `File::write`,
+`File::sync`, and `File::close` APIs used here. No dependency source is
+vendored. `moonbitlang/core/double` is part of the MoonBit toolchain and is
+used only by tests.
 
 MoonPropertyDB is an original implementation for this repository. No upstream
 database source, copied fixture, or external test dataset is included in the

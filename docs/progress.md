@@ -8,7 +8,8 @@ statement is not evidence that a feature is implemented.
 The preserved baseline contains 53 real development commits from 2026-09-20
 through 2026-09-22. The formal `main` branch now also contains the reviewed
 submission-readiness PR. The active Issue #8 branch is a tested in-memory graph
-foundation plus private WAL codec and stream-scanning primitives:
+foundation plus private WAL codec, stream-scanning, and file append/sync
+primitives:
 
 - typed IDs and scalar property values;
 - structured error categories;
@@ -21,7 +22,9 @@ foundation plus private WAL codec and stream-scanning primitives:
   corruption/truncation classification;
 - sequential WAL scanning after a snapshot boundary, including duplicate/gap
   detection and final-tail handling;
-- 41 native tests and a runnable in-memory example.
+- private native WAL append with explicit data synchronization and structured
+  open/write/sync I/O errors (not yet connected to transaction commit);
+- 43 native tests and a runnable in-memory example.
 
 All current commit author and committer metadata belongs to `dtzrttp`.
 
@@ -32,26 +35,32 @@ The following commands pass locally on the native target:
 
 ```text
 moon check --target native
-moon test --target native   # 41 passed
+moon test --target native   # 43 passed
 moon build --target native
 moon fmt --check
 moon info --target native
 git diff --check
 ```
 
-The public interface is reviewed through the generated `pkg.generated.mbti`.
-The installed toolchain's `moon ide doc` verified the exact `Bytes`, `BytesView`,
-`Byte`, `UInt64`, `Array::append`, `Array::set`, and `Array::iter2` APIs used by
-the codec. The codec record and decode-result types remain private.
+All listed checks pass on the native target. MoonBit reports one expected
+unused-private-helper warning because transaction integration is a later Issue
+#8 slice. The Windows C compiler also reports an `EINVAL` macro redefinition
+inside the upstream async dependency; it does not fail the build. The public
+interface is reviewed through the generated root `pkg.generated.mbti`, which
+has no changes. `moon ide doc` verified the codec's byte/array APIs and the
+exact `async/fs` open, write, sync, close, and mode signatures used here. WAL
+record and decode-result types remain private.
 
 ## Planned v0.1 work
 
-Persistent database paths, WAL append/synchronization, graph operation replay,
-database reopen/recovery, snapshots/checkpoints, cross-process writer locking,
-the bounded query pipeline, the full CLI, JSONL import/export, and the complete
-dependency-graph demo are not implemented. The current WAL work is only the
-tested in-memory codec and scanner; these capabilities must not be described
-as delivered until their code and integration tests land.
+Persistent database open/close, transaction-integrated WAL commits, graph
+operation replay, database reopen/recovery, snapshots/checkpoints,
+cross-process writer locking, the bounded query pipeline, the full CLI,
+JSONL import/export, and the complete dependency-graph demo are not
+implemented. The private append-and-sync helper is not proof of durable
+transactions; ambiguous append failures are not yet connected to writer
+poisoning or recovery. These capabilities must not be described as delivered
+until their code and integration tests land.
 
 ## Repository tracking note
 

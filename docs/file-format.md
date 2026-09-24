@@ -1,7 +1,10 @@
 # File format status
 
-Persistent file access is not implemented in the current snapshot. The current
-public database constructor is explicitly `Database::new_in_memory()`.
+The current public database constructor is explicitly
+`Database::new_in_memory()`. A private native storage primitive now appends an
+encoded WAL v1 frame and explicitly synchronizes the file's data before it
+returns. It is not integrated with transaction commit and does not yet make
+the public database persistent.
 
 The current Issue #7 branch implements and tests the pure in-memory WAL v1
 record codec. Its private frame layout is:
@@ -23,9 +26,11 @@ magic, version, flags, length, operation tag, operation boundary, or checksum.
 It returns the consumed length so a later log scanner can continue after one
 complete frame. File names and byte offsets are carried into structured errors.
 
-The codec does not yet append records to a file, synchronize durable storage,
-replay operations, or expose log-record types through the public API. Those
-responsibilities remain in the recovery and storage issues.
+The codec and private appender do not yet replay operations or expose
+log-record types through the public API. Transaction integration, recovery,
+and crash-safe commit behavior remain unfinished. A failed append or sync is
+reported as a structured I/O error; caller-level handling that prevents
+subsequent commits after an ambiguous partial write is not implemented yet.
 
 Snapshots are planned to contain the database format version, last included
 transaction ID, next IDs, canonical nodes and edges, and property-index
